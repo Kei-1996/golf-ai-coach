@@ -13,34 +13,33 @@ st.set_page_config(layout="wide", page_title="K's Golf AI Coach")
 st.markdown("""
     <style>
     .main > div {padding-top: 2rem;}
+    video { width: 100% !important; height: auto !important; }
+    .stMetric { background-color: #f0f2f6; padding: 10px; border-radius: 5px; text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- Session State (記憶領域) の初期化 ---
-if 'pro_processed_video' not in st.session_state:
-    st.session_state['pro_processed_video'] = None
-if 'pro_df' not in st.session_state:
-    st.session_state['pro_df'] = None
-if 'my_processed_video' not in st.session_state:
-    st.session_state['my_processed_video'] = None
-if 'my_df' not in st.session_state:
-    st.session_state['my_df'] = None
+# --- Session State ---
+if 'pro_processed_video' not in st.session_state: st.session_state['pro_processed_video'] = None
+if 'pro_df' not in st.session_state: st.session_state['pro_df'] = None
+if 'my_processed_video' not in st.session_state: st.session_state['my_processed_video'] = None
+if 'my_df' not in st.session_state: st.session_state['my_df'] = None
+if 'sync_video_path' not in st.session_state: st.session_state['sync_video_path'] = None
+if 'pro_fps' not in st.session_state: st.session_state['pro_fps'] = 30
+if 'my_fps' not in st.session_state: st.session_state['my_fps'] = 30
 
-# --- 2. 計算用関数 ---
+# --- 2. 計算・解析用関数 ---
 
 def calculate_angle(a, b, c):
-    """3点の座標から角度を計算"""
     a = np.array(a)
     b = np.array(b)
     c = np.array(c)
     radians = np.arctan2(c[1]-b[1], c[0]-b[0]) - np.arctan2(a[1]-b[1], a[0]-b[0])
     angle = np.abs(radians*180.0/np.pi)
-    if angle > 180.0:
-        angle = 360-angle
+    if angle > 180.0: angle = 360-angle
     return angle
 
 def analyze_video(input_path, output_path):
-    """動画解析＆データ抽出（トップ位置検出用に手首Y座標も保存）"""
+    """動画解析：肘、鼻(頭)、手首Y(高さ)を記録"""
     cap = cv2.VideoCapture(input_path)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -52,16 +51,13 @@ def analyze_video(input_path, output_path):
     
     mp_pose = mp.solutions.pose
     mp_drawing = mp.solutions.drawing_utils
-    
     pose_data = []
     
     with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
         bar = st.progress(0)
-        
         for i in range(frame_count):
             ret, frame = cap.read()
-            if not ret:
-                break
+            if not ret: break
             
             image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             image.flags.writeable = False
@@ -76,205 +72,261 @@ def analyze_video(input_path, output_path):
                 l_shoulder = [landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x, landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
                 l_elbow    = [landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].x, landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].y]
                 l_wrist    = [landmarks[mp_pose.PoseLandmark.LEFT_WRIST.value].x, landmarks[mp_pose.PoseLandmark.LEFT_WRIST.value].y]
-                l_hip      = [landmarks[mp_pose.PoseLandmark.LEFT_HIP.value].x, landmarks[mp_pose.PoseLandmark.LEFT_HIP.value].y]
-
+                nose       = [landmarks[mp_pose.PoseLandmark.NOSE.value].x, landmarks[mp_pose.PoseLandmark.NOSE.value].y]
+                
                 angle = calculate_angle(l_shoulder, l_elbow, l_wrist)
                 
-                # ★データを保存 (トップ検出のためにWrist_Yを追加)
                 pose_data.append({
                     "Frame": i,
-                    "Time_Sec": i / fps if fps > 0 else 0,
+                    "Time": i / fps if fps > 0 else 0,
                     "Arm_Angle": angle,
-                    "L_Shoulder_X": l_shoulder[0],
-                    "L_Shoulder_Y": l_shoulder[1],
-                    "L_Wrist_Y": l_wrist[1],  # Y座標が小さいほど高い位置
-                    "L_Hip_X": l_hip[0],
-                    "L_Hip_Y": l_hip[1]
+                    "L_Wrist_Y": l_wrist[1], # Y座標: 小さい=高い、大きい=低い
+                    "Nose_X": nose[0]        # スウェイ判定用
                 })
 
-                # 描画用判定
-                if angle > 160:
-                    color = (0, 255, 0)
-                    stage = "Good!"
-                else:
-                    color = (0, 0, 255)
-                    stage = "Bad"
-
+                # 描画
+                color = (0, 255, 0) if angle > 160 else (0, 0, 255)
                 mp_drawing.draw_landmarks(
                     image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
                     mp_drawing.DrawingSpec(color=color, thickness=2, circle_radius=4),
                     mp_drawing.DrawingSpec(color=color, thickness=2, circle_radius=2)
                 )
-
-                cv2.rectangle(image, (0,0), (image.shape[1], 50), color, -1)
-                cv2.putText(image, f'{stage} Angle: {int(angle)}', (10,35), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,255,255), 2, cv2.LINE_AA)
+                
+                # 頭の位置をマーク
+                h, w, _ = image.shape
+                cv2.circle(image, (int(nose[0]*w), int(nose[1]*h)), 5, (255, 255, 0), -1)
 
             out.write(image)
-            if frame_count > 0:
-                bar.progress((i + 1) / frame_count)
+            if frame_count > 0: bar.progress((i + 1) / frame_count)
 
     cap.release()
     out.release()
     df = pd.DataFrame(pose_data)
-    return output_path, df
+    return output_path, df, fps
 
-# --- 3. 映像処理クラス（リアルタイム用） ---
+def create_sync_video(pro_path, my_path, pro_top_frame, my_top_frame, output_path, target_fps):
+    """同期動画生成（トップ位置合わせ）"""
+    cap_pro = cv2.VideoCapture(pro_path)
+    cap_my = cv2.VideoCapture(my_path)
+
+    # 高さ合わせ
+    h_pro = int(cap_pro.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    h_my = int(cap_my.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    target_h = min(h_pro, h_my)
+    
+    w_pro = int(cap_pro.get(cv2.CAP_PROP_FRAME_WIDTH))
+    w_my = int(cap_my.get(cv2.CAP_PROP_FRAME_WIDTH))
+    new_w_pro = int(w_pro * (target_h / h_pro))
+    new_w_my = int(w_my * (target_h / h_my))
+    target_w = new_w_pro + new_w_my
+
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, target_fps, (target_w, target_h))
+
+    offset = my_top_frame - pro_top_frame
+    pro_delay = max(0, offset)
+    my_delay = max(0, -offset)
+    
+    max_frames = int(max(cap_pro.get(cv2.CAP_PROP_FRAME_COUNT) + pro_delay, 
+                         cap_my.get(cv2.CAP_PROP_FRAME_COUNT) + my_delay))
+
+    bar = st.progress(0)
+    sync_text = "Syncing..."
+
+    for i in range(max_frames):
+        if i < pro_delay:
+            cap_pro.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret_pro, frame_pro = cap_pro.read()
+            sync_text = "Waiting for Pro..."
+        else:
+            ret_pro, frame_pro = cap_pro.read()
+        
+        if i < my_delay:
+            cap_my.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret_my, frame_my = cap_my.read()
+            sync_text = "Waiting for You..."
+        else:
+            ret_my, frame_my = cap_my.read()
+            
+        if not ret_pro or not ret_my: break
+
+        frame_pro_resized = cv2.resize(frame_pro, (new_w_pro, target_h))
+        frame_my_resized = cv2.resize(frame_my, (new_w_my, target_h))
+        concat_frame = cv2.hconcat([frame_pro_resized, frame_my_resized])
+        
+        if i == (pro_top_frame + pro_delay): sync_text = "TOP POSITION MATCHED!"
+        cv2.putText(concat_frame, sync_text, (target_w//2 - 120, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
+        
+        out.write(concat_frame)
+        bar.progress((i + 1) / max_frames)
+
+    cap_pro.release()
+    cap_my.release()
+    out.release()
+    return output_path
+
+# --- 3. リアルタイム用 ---
 class PoseProcessor(VideoProcessorBase):
     def __init__(self):
         self.mp_drawing = mp.solutions.drawing_utils
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
-
     def recv(self, frame):
         img = frame.to_ndarray(format="bgr24")
         image = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        image.flags.writeable = False
         results = self.pose.process(image)
-        image.flags.writeable = True
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-
         if results.pose_landmarks:
-            landmarks = results.pose_landmarks.landmark
-            shoulder = [landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value].x, landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
-            elbow = [landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW.value].x, landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW.value].y]
-            wrist = [landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value].x, landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value].y]
-            
-            angle = calculate_angle(shoulder, elbow, wrist)
-            
-            if angle > 160:
-                color = (0, 255, 0)
-                stage = "Good!"
-            else:
-                color = (0, 0, 255)
-                stage = "Bad"
-
-            self.mp_drawing.draw_landmarks(
-                image, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS,
-                self.mp_drawing.DrawingSpec(color=color, thickness=2, circle_radius=4),
-                self.mp_drawing.DrawingSpec(color=color, thickness=2, circle_radius=2)
-            )
-
-            cv2.rectangle(image, (0,0), (image.shape[1], 50), color, -1)
-            cv2.putText(image, f'{stage} Angle: {int(angle)}', (10,35), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2, cv2.LINE_AA)
-
+            self.mp_drawing.draw_landmarks(image, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
         return av.VideoFrame.from_ndarray(image, format="bgr24")
 
-# --- 4. アプリのメイン構造 ---
+# --- 4. アプリメイン ---
 st.title("⛳️ K's Golf AI Coach")
-
 st.sidebar.header("メニュー")
 app_mode = st.sidebar.selectbox("モードを選択", ["リアルタイム判定 (Real-time)", "動画アップロード分析 (Upload)"])
 st.sidebar.divider()
-club_list = ["ドライバー (1W)", "アイアン (7I)", "ウェッジ", "パター"]
-club_select = st.sidebar.selectbox("使用クラブ", club_list)
+club_select = st.sidebar.selectbox("使用クラブ", ["ドライバー", "アイアン", "ウェッジ", "パター"])
 
-
-# --- モードA: リアルタイム判定 ---
+# --- モードA ---
 if app_mode == "リアルタイム判定 (Real-time)":
     st.header("⚡️ リアルタイム・コーチ")
     col1, col2 = st.columns(2)
     with col1:
-        st.info("👈 プロのお手本動画")
+        st.info("👈 プロのお手本")
         st.image("https://via.placeholder.com/360x640.png?text=Pro+Swing", use_container_width=True)
     with col2:
         st.success("📸 カメラ映像")
-        webrtc_streamer(
-            key="golf-pose-realtime",
-            mode=WebRtcMode.SENDRECV,
-            video_processor_factory=PoseProcessor,
-            media_stream_constraints={"video": True, "audio": False},
-            async_processing=True,
-        )
+        webrtc_streamer(key="golf-realtime", mode=WebRtcMode.SENDRECV, video_processor_factory=PoseProcessor)
 
-# --- モードB: 動画アップロード分析 ---
+# --- モードB ---
 elif app_mode == "動画アップロード分析 (Upload)":
     st.header("📂 動画分析ラボ")
+    st.warning("⚠️ **重要:** 正確な比較のため、**プロの動画と「同じアングル」** で撮影された動画を使用してください。")
     
-    # ★注意書きの追加 (重要！)
-    st.warning("⚠️ **重要:** 正確な比較のため、**プロの動画と「同じアングル（正面/後方）」** で撮影された動画を使用してください。アングルが異なるとAIが正しく判定できません。")
-
     col1, col2 = st.columns(2)
-    
-    # --- 左カラム: プロ ---
+
+    # プロ動画
     with col1:
         st.subheader("1. プロ/お手本の動画")
         pro_video = st.file_uploader("プロの動画", type=['mp4', 'mov'], key="pro_video")
-        
         if pro_video is not None:
-            st.video(pro_video)
-            if st.button("🔍 プロ動画を解析"):
-                tfile = tempfile.NamedTemporaryFile(delete=False) 
+            if st.button("🔍 プロ解析"):
+                tfile = tempfile.NamedTemporaryFile(delete=False)
                 tfile.write(pro_video.read())
-                output_pro = tfile.name + "_pro_processed.mp4"
-                
                 with st.spinner("プロ解析中..."):
-                    path, df = analyze_video(tfile.name, output_pro)
+                    path, df, fps = analyze_video(tfile.name, tfile.name + "_pro.mp4")
                     st.session_state['pro_processed_video'] = path
                     st.session_state['pro_df'] = df
-                    st.success("解析完了！")
-
+                    st.session_state['pro_fps'] = fps
+                    st.success("完了")
             if st.session_state['pro_processed_video']:
-                st.write("---")
                 st.video(st.session_state['pro_processed_video'])
-                csv = st.session_state['pro_df'].to_csv(index=False).encode('utf-8')
-                st.download_button("📥 プロのCSV DL", csv, 'pro_data.csv', 'text/csv')
 
-    # --- 右カラム: 自分 ---
+    # 自分動画
     with col2:
         st.subheader("2. あなたのスイング動画")
         my_video = st.file_uploader("自分の動画", type=['mp4', 'mov'], key="my_video")
-        
         if my_video is not None:
-            if st.button("🚀 自分の動画を解析"):
-                tfile = tempfile.NamedTemporaryFile(delete=False) 
+            if st.button("🚀 自分解析"):
+                tfile = tempfile.NamedTemporaryFile(delete=False)
                 tfile.write(my_video.read())
-                output_my = tfile.name + "_my_processed.mp4"
-                
                 with st.spinner("自分解析中..."):
-                    path, df = analyze_video(tfile.name, output_my)
+                    path, df, fps = analyze_video(tfile.name, tfile.name + "_my.mp4")
                     st.session_state['my_processed_video'] = path
                     st.session_state['my_df'] = df
-                    st.success("解析完了！")
-
+                    st.session_state['my_fps'] = fps
+                    st.success("完了")
             if st.session_state['my_processed_video']:
-                st.write("---")
                 st.video(st.session_state['my_processed_video'])
-                csv_my = st.session_state['my_df'].to_csv(index=False).encode('utf-8')
-                st.download_button("📥 自分のCSV DL", csv_my, 'my_data.csv', 'text/csv')
 
-    # --- ★比較診断セクション (両方のデータが揃ったら表示) ---
+    # --- 総合評価セクション ---
     if st.session_state['pro_df'] is not None and st.session_state['my_df'] is not None:
         st.divider()
-        st.header("🤖 AIコーチの診断レポート")
+        st.header("📊 総合スイング診断")
         
-        # 1. トップ位置（手首が一番高い位置）を探す
-        # L_Wrist_Y は画面上が0、下が1なので、最小値が一番高い位置
         pro_df = st.session_state['pro_df']
         my_df = st.session_state['my_df']
         
-        # プロのトップ
+        # --- 1. トップ検出 (一番手が上がった瞬間) ---
         pro_top_idx = pro_df['L_Wrist_Y'].idxmin()
-        pro_top_angle = pro_df.iloc[pro_top_idx]['Arm_Angle']
-        
-        # 自分のトップ
         my_top_idx = my_df['L_Wrist_Y'].idxmin()
-        my_top_angle = my_df.iloc[my_top_idx]['Arm_Angle']
         
-        # 2. 比較結果の表示
-        col_res1, col_res2, col_res3 = st.columns(3)
-        col_res1.metric("プロのトップ時 左肘角度", f"{int(pro_top_angle)}°")
-        col_res2.metric("あなたのトップ時 左肘角度", f"{int(my_top_angle)}°")
-        
-        diff = my_top_angle - pro_top_angle
-        col_res3.metric("差分", f"{int(diff)}°", delta=-diff) # 差が大きいと赤くなるように設定
-
-        # 3. アドバイス生成
-        st.subheader("💡 ワンポイント・アドバイス")
-        if abs(diff) < 15:
-            st.success("素晴らしい！プロとほぼ同じ肘の伸び具合です。この調子でキープしましょう！")
-        elif diff > 15:
-            st.error("肘が曲がりすぎています（チキンウィング気味）。トップでもう少し腕を伸ばす意識を持ちましょう。")
+        # --- 2. インパクト検出 (トップの後に、手が一番下がった瞬間) ---
+        # プロ
+        pro_after_top = pro_df.iloc[pro_top_idx:] # トップ以降のデータ
+        if not pro_after_top.empty:
+            pro_impact_idx = pro_after_top['L_Wrist_Y'].idxmax() # 一番下がった位置(Y最大)
         else:
-            st.warning("肘が伸びすぎて硬くなっている可能性があります。もう少しリラックスしても良いかもしれません。")
+            pro_impact_idx = pro_top_idx # エラー回避
+
+        # 自分
+        my_after_top = my_df.iloc[my_top_idx:]
+        if not my_after_top.empty:
+            my_impact_idx = my_after_top['L_Wrist_Y'].idxmax()
+        else:
+            my_impact_idx = my_top_idx
+
+        # --- スコア計算 ---
+        
+        # ① 肘の角度 (トップ時)
+        pro_arm = pro_df.iloc[pro_top_idx]['Arm_Angle']
+        my_arm = my_df.iloc[my_top_idx]['Arm_Angle']
+        diff_arm = abs(my_arm - pro_arm)
+        score_arm = max(0, 100 - diff_arm * 2)
+
+        # ② 頭の安定性 (全期間の標準偏差)
+        pro_sway = pro_df['Nose_X'].std() * 100
+        my_sway = my_df['Nose_X'].std() * 100
+        diff_sway = max(0, my_sway - pro_sway)
+        score_sway = max(0, 100 - diff_sway * 10)
+
+        # ③ ダウンスイング・テンポ (トップ〜インパクトの時間)
+        pro_down_time = pro_df.iloc[pro_impact_idx]['Time'] - pro_df.iloc[pro_top_idx]['Time']
+        my_down_time = my_df.iloc[my_impact_idx]['Time'] - my_df.iloc[my_top_idx]['Time']
+        diff_time = abs(my_down_time - pro_down_time)
+        # 0.1秒ズレるごとに20点減点 (タイミングはシビアに)
+        score_tempo = max(0, 100 - (diff_time * 100 * 2))
+
+        # 総合点
+        total_score = int((score_arm + score_sway + score_tempo) / 3)
+
+        # --- 表示 ---
+        st.subheader(f"🏆 総合スコア: {total_score}点")
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("① トップの形(肘)", f"{int(score_arm)}点", f"角度差: {int(diff_arm)}°")
+        c2.metric("② 頭の安定性", f"{int(score_sway)}点", f"ブレ差: {diff_sway:.1f}")
+        c3.metric("③ スイングテンポ", f"{int(score_tempo)}点", f"時間差: {diff_time:.2f}秒")
+        
+        st.caption(f"プロのダウンスイング時間: {pro_down_time:.2f}秒 / あなた: {my_down_time:.2f}秒")
+
+        # --- アドバイス ---
+        with st.expander("💡 AIコーチからのアドバイス", expanded=True):
+            if score_tempo < 80:
+                if my_down_time > pro_down_time:
+                    st.write("❌ **テンポ**: プロよりスイングがゆっくりです。思い切って振り抜きましょう！")
+                else:
+                    st.write("❌ **テンポ**: プロより速すぎます（打ち急ぎ）。トップで一瞬「間」を作ると安定します。")
+            else:
+                st.write("✅ **テンポ**: 素晴らしいリズムです！プロ並みのキレがあります。")
+
+        # --- 同期動画生成 ---
+        st.divider()
+        st.subheader("🎬 フォーム比較 (同期再生)")
+        if st.button("✨ 同期比較動画を生成する"):
+            with st.spinner("生成中..."):
+                tfile_sync = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+                target_fps = min(st.session_state['pro_fps'], st.session_state['my_fps'])
+                create_sync_video(
+                    st.session_state['pro_processed_video'],
+                    st.session_state['my_processed_video'],
+                    pro_df.iloc[pro_top_idx]['Frame'],
+                    my_df.iloc[my_top_idx]['Frame'],
+                    tfile_sync.name,
+                    target_fps
+                )
+                st.session_state['sync_video_path'] = tfile_sync.name
+                st.success("生成完了")
+
+        if st.session_state['sync_video_path']:
+            st.video(st.session_state['sync_video_path'])
