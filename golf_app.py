@@ -3,10 +3,18 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import av
+import tempfile
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 
 # --- 1. 基本設定と関数 ---
 st.set_page_config(layout="wide", page_title="K's Golf AI Coach")
+
+# スタイル調整（スマホで見たときに余白を減らす）
+st.markdown("""
+    <style>
+    .main > div {padding-top: 2rem;}
+    </style>
+    """, unsafe_allow_html=True)
 
 # 角度計算ロジック
 def calculate_angle(a, b, c):
@@ -19,87 +27,110 @@ def calculate_angle(a, b, c):
         angle = 360-angle
     return angle
 
-# --- 2. 映像処理クラス（ここがスマホ対応のキモ！） ---
-# このクラスが、スマホから送られてきた映像を1枚ずつ加工して送り返す
+# --- 2. 映像処理クラス（リアルタイム用） ---
 class PoseProcessor(VideoProcessorBase):
     def __init__(self):
-        # クラスが作られたときにAI（MediaPipe）を準備する
         self.mp_drawing = mp.solutions.drawing_utils
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
     def recv(self, frame):
-        # 1. スマホから映像フレームを受け取る
         img = frame.to_ndarray(format="bgr24")
-
-        # 2. 画像処理（いつものやつ！）
+        
+        # 画像処理
         image = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         image.flags.writeable = False
-        
         results = self.pose.process(image)
-        
         image.flags.writeable = True
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
-        # 3. 骨格検出と描画
+        # 骨格検出と描画
         if results.pose_landmarks:
             landmarks = results.pose_landmarks.landmark
-            
-            # 座標取得
             shoulder = [landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value].x, landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
             elbow = [landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW.value].x, landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW.value].y]
             wrist = [landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value].x, landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST.value].y]
             
-            # 角度計算
             angle = calculate_angle(shoulder, elbow, wrist)
             
-            # 判定ロジック
             if angle > 160:
-                color = (0, 255, 0) # 緑
+                color = (0, 255, 0)
                 stage = "Good!"
             else:
-                color = (0, 0, 255) # 赤
+                color = (0, 0, 255)
                 stage = "Bad"
 
-            # 骨格描画
             self.mp_drawing.draw_landmarks(
                 image, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS,
                 self.mp_drawing.DrawingSpec(color=color, thickness=2, circle_radius=4),
                 self.mp_drawing.DrawingSpec(color=color, thickness=2, circle_radius=2)
             )
 
-            # 判定表示
-            # 画面上部に帯をつける
             cv2.rectangle(image, (0,0), (image.shape[1], 50), color, -1)
             cv2.putText(image, f'{stage} Angle: {int(angle)}', (10,35), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2, cv2.LINE_AA)
 
-        # 4. 加工した映像をスマホ送り返す
         return av.VideoFrame.from_ndarray(image, format="bgr24")
 
-# --- 3. アプリの見た目（UI） ---
+# --- 3. アプリのメイン構造 ---
 st.title("⛳️ K's Golf AI Coach")
 
-st.sidebar.header("設定")
-club_list = ["ドライバー (1W)", "アイアン (7I)", "ウェッジ", "パター"] # 長くなるので省略したが、全リスト入れてOK
-club_select = st.sidebar.selectbox("クラブを選択", club_list)
+# ★サイドバーでモード切替★
+st.sidebar.header("メニュー")
+app_mode = st.sidebar.selectbox("モードを選択", ["リアルタイム判定 (Real-time)", "動画アップロード分析 (Upload)"])
 
-col1, col2 = st.columns(2)
+st.sidebar.divider()
 
-with col1:
-    st.header(f"プロのお手本")
-    st.image("https://via.placeholder.com/360x640.png?text=Pro+Swing", use_container_width=True)
+# 共通設定（クラブ選択）
+club_list = ["ドライバー (1W)", "アイアン (7I)", "ウェッジ", "パター"]
+club_select = st.sidebar.selectbox("使用クラブ", club_list)
 
-with col2:
-    st.header("あなたのスイング")
-    st.write("下のボタンを押すとカメラが起動します")
+
+# --- モードA: リアルタイム判定（今までの機能） ---
+if app_mode == "リアルタイム判定 (Real-time)":
+    st.header("⚡️ リアルタイム・コーチ")
+    st.write("友達に撮ってもらいながら、フォームをチェックしよう！")
     
-    # ★ここが変更点！ WebRTCコンポーネント
-    # rtc_configurationは、スマホがサーバーと通信するための設定（Googleの無料サーバーを使用）
-    webrtc_streamer(
-        key="golf-pose",
-        mode=WebRtcMode.SENDRECV,
-        video_processor_factory=PoseProcessor,
-        media_stream_constraints={"video": True, "audio": False},
-        async_processing=True,
-    )
+    col1, col2 = st.columns(2)
+    with col1:
+        st.info("👈 プロのお手本動画 (ここに表示)")
+        st.image("https://via.placeholder.com/360x640.png?text=Pro+Swing", use_container_width=True)
+    
+    with col2:
+        st.success("📸 カメラ映像")
+        webrtc_streamer(
+            key="golf-pose-realtime",
+            mode=WebRtcMode.SENDRECV,
+            video_processor_factory=PoseProcessor,
+            media_stream_constraints={"video": True, "audio": False},
+            async_processing=True,
+        )
+
+# --- モードB: 動画アップロード分析（これからの機能） ---
+elif app_mode == "動画アップロード分析 (Upload)":
+    st.header("📂 動画分析ラボ")
+    st.write("撮影したスイング動画をアップロードして、AIが詳細に分析します。")
+
+    col1, col2 = st.columns(2)
+    
+    # 左側：プロの動画（アップロード機能）
+    with col1:
+        st.subheader("1. プロ/お手本の動画")
+        pro_video = st.file_uploader("プロの動画をアップロード", type=['mp4', 'mov'], key="pro_video")
+        if pro_video is not None:
+            st.video(pro_video)
+        else:
+            st.info("比較したいお手本動画があればアップロードしてください")
+
+    # 右側：自分の動画（アップロード機能）
+    with col2:
+        st.subheader("2. あなたのスイング動画")
+        my_video = st.file_uploader("自分の動画をアップロード", type=['mp4', 'mov'], key="my_video")
+        if my_video is not None:
+            st.video(my_video) # とりあえず再生するだけ
+            
+            # ここに後で「分析スタートボタン」を作る！
+            if st.button("🚀 AI分析を開始する"):
+                st.warning("⚠️ 分析機能は現在開発中です！")
+        else:
+            st.info("スマホで撮ったスイング動画をアップロードしてください")
