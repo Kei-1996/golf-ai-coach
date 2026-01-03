@@ -29,6 +29,7 @@ if 'my_df' not in st.session_state:
 # --- 2. 計算用関数 ---
 
 def calculate_angle(a, b, c):
+    """3点の座標から角度を計算"""
     a = np.array(a)
     b = np.array(b)
     c = np.array(c)
@@ -39,6 +40,7 @@ def calculate_angle(a, b, c):
     return angle
 
 def analyze_video(input_path, output_path):
+    """動画解析＆データ抽出（トップ位置検出用に手首Y座標も保存）"""
     cap = cv2.VideoCapture(input_path)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -70,6 +72,7 @@ def analyze_video(input_path, output_path):
             if results.pose_landmarks:
                 landmarks = results.pose_landmarks.landmark
                 
+                # 座標取得
                 l_shoulder = [landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x, landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
                 l_elbow    = [landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].x, landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].y]
                 l_wrist    = [landmarks[mp_pose.PoseLandmark.LEFT_WRIST.value].x, landmarks[mp_pose.PoseLandmark.LEFT_WRIST.value].y]
@@ -77,17 +80,19 @@ def analyze_video(input_path, output_path):
 
                 angle = calculate_angle(l_shoulder, l_elbow, l_wrist)
                 
+                # ★データを保存 (トップ検出のためにWrist_Yを追加)
                 pose_data.append({
                     "Frame": i,
                     "Time_Sec": i / fps if fps > 0 else 0,
                     "Arm_Angle": angle,
                     "L_Shoulder_X": l_shoulder[0],
                     "L_Shoulder_Y": l_shoulder[1],
+                    "L_Wrist_Y": l_wrist[1],  # Y座標が小さいほど高い位置
                     "L_Hip_X": l_hip[0],
                     "L_Hip_Y": l_hip[1]
                 })
 
-                # --- 暫定ルール: 160度以下ならBad ---
+                # 描画用判定
                 if angle > 160:
                     color = (0, 255, 0)
                     stage = "Good!"
@@ -186,7 +191,9 @@ if app_mode == "リアルタイム判定 (Real-time)":
 # --- モードB: 動画アップロード分析 ---
 elif app_mode == "動画アップロード分析 (Upload)":
     st.header("📂 動画分析ラボ")
-    st.write("プロと自分の動画を数値化(CSV)して比較準備！")
+    
+    # ★注意書きの追加 (重要！)
+    st.warning("⚠️ **重要:** 正確な比較のため、**プロの動画と「同じアングル（正面/後方）」** で撮影された動画を使用してください。アングルが異なるとAIが正しく判定できません。")
 
     col1, col2 = st.columns(2)
     
@@ -196,10 +203,7 @@ elif app_mode == "動画アップロード分析 (Upload)":
         pro_video = st.file_uploader("プロの動画", type=['mp4', 'mov'], key="pro_video")
         
         if pro_video is not None:
-            # 1. プレビュー
             st.video(pro_video)
-            
-            # 2. 解析ボタン
             if st.button("🔍 プロ動画を解析"):
                 tfile = tempfile.NamedTemporaryFile(delete=False) 
                 tfile.write(pro_video.read())
@@ -207,24 +211,15 @@ elif app_mode == "動画アップロード分析 (Upload)":
                 
                 with st.spinner("プロ解析中..."):
                     path, df = analyze_video(tfile.name, output_pro)
-                    # ★ここで結果をsession_stateに保存！
                     st.session_state['pro_processed_video'] = path
                     st.session_state['pro_df'] = df
                     st.success("解析完了！")
 
-            # 3. 解析結果の表示 (stateに残っていれば表示)
             if st.session_state['pro_processed_video']:
                 st.write("---")
                 st.video(st.session_state['pro_processed_video'])
-                
-                # CSVダウンロード
                 csv = st.session_state['pro_df'].to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 プロのCSVをダウンロード",
-                    data=csv,
-                    file_name='pro_data.csv',
-                    mime='text/csv'
-                )
+                st.download_button("📥 プロのCSV DL", csv, 'pro_data.csv', 'text/csv')
 
     # --- 右カラム: 自分 ---
     with col2:
@@ -232,10 +227,6 @@ elif app_mode == "動画アップロード分析 (Upload)":
         my_video = st.file_uploader("自分の動画", type=['mp4', 'mov'], key="my_video")
         
         if my_video is not None:
-            # 1. プレビュー
-            # st.video(my_video) # スペース節約のため元動画プレビューは省略してもOK
-            
-            # 2. 解析ボタン
             if st.button("🚀 自分の動画を解析"):
                 tfile = tempfile.NamedTemporaryFile(delete=False) 
                 tfile.write(my_video.read())
@@ -243,21 +234,47 @@ elif app_mode == "動画アップロード分析 (Upload)":
                 
                 with st.spinner("自分解析中..."):
                     path, df = analyze_video(tfile.name, output_my)
-                    # ★ここで結果をsession_stateに保存！
                     st.session_state['my_processed_video'] = path
                     st.session_state['my_df'] = df
                     st.success("解析完了！")
 
-            # 3. 解析結果の表示
             if st.session_state['my_processed_video']:
                 st.write("---")
                 st.video(st.session_state['my_processed_video'])
-                
-                # CSVダウンロード (自分用も追加！)
                 csv_my = st.session_state['my_df'].to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 自分のCSVをダウンロード",
-                    data=csv_my,
-                    file_name='my_data.csv',
-                    mime='text/csv'
-                )
+                st.download_button("📥 自分のCSV DL", csv_my, 'my_data.csv', 'text/csv')
+
+    # --- ★比較診断セクション (両方のデータが揃ったら表示) ---
+    if st.session_state['pro_df'] is not None and st.session_state['my_df'] is not None:
+        st.divider()
+        st.header("🤖 AIコーチの診断レポート")
+        
+        # 1. トップ位置（手首が一番高い位置）を探す
+        # L_Wrist_Y は画面上が0、下が1なので、最小値が一番高い位置
+        pro_df = st.session_state['pro_df']
+        my_df = st.session_state['my_df']
+        
+        # プロのトップ
+        pro_top_idx = pro_df['L_Wrist_Y'].idxmin()
+        pro_top_angle = pro_df.iloc[pro_top_idx]['Arm_Angle']
+        
+        # 自分のトップ
+        my_top_idx = my_df['L_Wrist_Y'].idxmin()
+        my_top_angle = my_df.iloc[my_top_idx]['Arm_Angle']
+        
+        # 2. 比較結果の表示
+        col_res1, col_res2, col_res3 = st.columns(3)
+        col_res1.metric("プロのトップ時 左肘角度", f"{int(pro_top_angle)}°")
+        col_res2.metric("あなたのトップ時 左肘角度", f"{int(my_top_angle)}°")
+        
+        diff = my_top_angle - pro_top_angle
+        col_res3.metric("差分", f"{int(diff)}°", delta=-diff) # 差が大きいと赤くなるように設定
+
+        # 3. アドバイス生成
+        st.subheader("💡 ワンポイント・アドバイス")
+        if abs(diff) < 15:
+            st.success("素晴らしい！プロとほぼ同じ肘の伸び具合です。この調子でキープしましょう！")
+        elif diff > 15:
+            st.error("肘が曲がりすぎています（チキンウィング気味）。トップでもう少し腕を伸ばす意識を持ちましょう。")
+        else:
+            st.warning("肘が伸びすぎて硬くなっている可能性があります。もう少しリラックスしても良いかもしれません。")
