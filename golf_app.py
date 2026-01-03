@@ -4,7 +4,8 @@ import mediapipe as mp
 import numpy as np
 import pandas as pd
 import tempfile
-from streamlit_webrtc import webrtc_streamer, WebRtcMode
+import av
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoTransformerBase
 
 # --- 1. 基本設定 ---
 st.set_page_config(layout="wide", page_title="K's Golf AI Coach")
@@ -35,7 +36,6 @@ st.markdown("""
     .metric-value { font-size: 1.4rem; font-weight: bold; color: #31333F; }
     .advice-text { font-size: 0.9rem; color: #d32f2f; margin-top: 5px; font-weight: bold;}
     
-    /* 注意書きボックス */
     .angle-warning {
         background-color: #fff3cd;
         color: #856404;
@@ -49,6 +49,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- Session State ---
+# 構造: club_data[club][angle_type] = { ... }
 if 'club_data' not in st.session_state: st.session_state['club_data'] = {}
 if 'my_processed_video' not in st.session_state: st.session_state['my_processed_video'] = None
 if 'my_df' not in st.session_state: st.session_state['my_df'] = None
@@ -58,7 +59,6 @@ if 'sync_video_path' not in st.session_state: st.session_state['sync_video_path'
 # --- 2. 計算・解析用関数 ---
 
 def calculate_angle(a, b, c):
-    """3点から角度を計算"""
     a = np.array(a)
     b = np.array(b)
     c = np.array(c)
@@ -68,7 +68,6 @@ def calculate_angle(a, b, c):
     return angle
 
 def get_vertical_angle(a, b):
-    """垂直線に対する角度"""
     a = np.array(a)
     b = np.array(b)
     radians = np.arctan2(abs(a[0]-b[0]), abs(a[1]-b[1]))
@@ -96,9 +95,7 @@ def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
     pose_data = []
     
     nose_x_list = []
-    spine_angles = []
-    knee_angles = []
-
+    
     with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
         bar = st.progress(0)
         for i in range(frame_count):
@@ -119,6 +116,7 @@ def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
             if results.pose_landmarks:
                 lm = results.pose_landmarks.landmark
                 
+                # 座標抽出
                 nose = [lm[mp_pose.PoseLandmark.NOSE].x, lm[mp_pose.PoseLandmark.NOSE].y]
                 l_shoulder = [lm[mp_pose.PoseLandmark.LEFT_SHOULDER].x, lm[mp_pose.PoseLandmark.LEFT_SHOULDER].y]
                 l_elbow = [lm[mp_pose.PoseLandmark.LEFT_ELBOW].x, lm[mp_pose.PoseLandmark.LEFT_ELBOW].y]
@@ -128,6 +126,7 @@ def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
                 r_knee = [lm[mp_pose.PoseLandmark.RIGHT_KNEE].x, lm[mp_pose.PoseLandmark.RIGHT_KNEE].y]
                 r_ankle = [lm[mp_pose.PoseLandmark.RIGHT_ANKLE].x, lm[mp_pose.PoseLandmark.RIGHT_ANKLE].y]
 
+                # 計算
                 arm_angle = calculate_angle(l_shoulder, l_elbow, l_wrist)
                 spine_angle = get_vertical_angle(l_shoulder, l_hip)
                 knee_angle = calculate_angle(r_hip, r_knee, r_ankle)
@@ -139,11 +138,7 @@ def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
                     "R_Knee_Angle": knee_angle,
                     "Nose_X": nose[0]
                 })
-                
                 nose_x_list.append(nose[0])
-                spine_angles.append(spine_angle)
-                knee_angles.append(knee_angle)
-
                 mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
             pose_data.append(frame_data)
@@ -157,15 +152,12 @@ def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
     if not df.empty and df['L_Wrist_Y'].notnull().any():
         top_idx = df['L_Wrist_Y'].idxmin()
         top_frame = df.loc[top_idx, 'Frame']
-        
         addr_df = df[df['Frame'] < top_frame]
         address_frame = df.loc[addr_df['L_Wrist_Y'].idxmax(), 'Frame'] if not addr_df.empty else 0
-        
         imp_df = df[df['Frame'] > top_frame]
         impact_frame = df.loc[imp_df['L_Wrist_Y'].idxmax(), 'Frame'] if not imp_df.empty else frame_count-1
         
         top_data = df.loc[top_idx]
-
         metrics = {
             'fps': fps,
             'top_frame': int(top_frame),
@@ -185,10 +177,8 @@ def create_sync_video(pro_path, my_path, pro_metrics, my_metrics, output_path):
     """同期動画生成"""
     cap_pro = cv2.VideoCapture(pro_path)
     cap_my = cv2.VideoCapture(my_path)
-
     h_pro = int(cap_pro.get(cv2.CAP_PROP_FRAME_HEIGHT))
     h_my = int(cap_my.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    
     if h_pro == 0 or h_my == 0: return
 
     target_h = min(h_pro, h_my)
@@ -227,12 +217,10 @@ def create_sync_video(pro_path, my_path, pro_metrics, my_metrics, output_path):
         else:
             ret_my, frame_my = cap_my.read()
             
-        # どちらかが終わったらループを抜ける（ここで抜けるとバーが100%にならない）
         if not ret_pro or not ret_my: break
 
         frame_pro_resized = cv2.resize(frame_pro, (new_w_pro, target_h))
         frame_my_resized = cv2.resize(frame_my, (new_w_my, target_h))
-        
         concat_frame = cv2.hconcat([frame_pro_resized, frame_my_resized])
         
         sync_text = ""
@@ -245,20 +233,16 @@ def create_sync_video(pro_path, my_path, pro_metrics, my_metrics, output_path):
         out.write(concat_frame)
         bar.progress((i+1)/max_frames)
 
-    # ループ終了後に強制的にバーを完了させる
-    bar.progress(1.0)
-    
+    bar.progress(1.0) # 強制完了
     cap_pro.release()
     cap_my.release()
     out.release()
     return
 
-def generate_advice(label, pro_val, my_val, higher_is_better=None):
-    """具体的なアドバイス生成"""
+def generate_advice(label, pro_val, my_val):
     diff = my_val - pro_val
     msg = ""
     score = 100
-    
     abs_diff = abs(diff)
     if abs_diff < 5: score = 100
     else: score = max(0, int(100 - abs_diff * 2))
@@ -266,91 +250,161 @@ def generate_advice(label, pro_val, my_val, higher_is_better=None):
     if label == "Arm":
         if diff < -15: msg = f"⚠️ プロより{abs(int(diff))}°曲がっています。左腕をピンと伸ばして！"
         elif diff > 10: msg = "⚠️ 伸びすぎてロックしています。少しリラックス。"
-        else: msg = "✅ プロ同様、綺麗に伸びています！"
-        
+        else: msg = "✅ Good! 綺麗に伸びています。"
     elif label == "Spine":
         if diff < -10: msg = f"⚠️ プロより{abs(int(diff))}°起きています。前傾キープ！"
         elif diff > 10: msg = f"⚠️ プロより{abs(int(diff))}°深く曲げすぎています。"
-        else: msg = "✅ 前傾角度が完璧にキープされています。"
-        
+        else: msg = "✅ Good! 前傾姿勢が完璧です。"
     elif label == "Knee":
         if diff > 10: msg = f"⚠️ プロより{abs(int(diff))}°伸びて棒立ちです。"
         elif diff < -10: msg = "⚠️ 膝を曲げすぎています。"
-        else: msg = "✅ 膝の角度が安定しています。"
-        
+        else: msg = "✅ Good! 膝が安定しています。"
     elif label == "Tempo":
         if my_val < 2.5: msg = "⚠️ 打ち急ぎです。バックスイングをゆったり。"
         elif my_val > 3.5: msg = "⚠️ 始動が遅すぎます。リズムよく！"
         else: msg = "✅ 完璧なリズム（3:1）です！"
         score = max(0, int(100 - abs(3.0 - my_val)*30))
-
     elif label == "Head":
         if my_val > pro_val * 2: msg = "⚠️ 頭が動きすぎています。軸を固定！"
-        else: msg = "✅ 体幹が強く、頭が動いていません。"
+        else: msg = "✅ Good! 体幹が強く安定しています。"
         score = max(0, int(100 - (my_val * 1000)))
-
     return score, msg
 
-# --- 3. サイドバー設定 ---
+# --- 3. リアルタイム分析クラス (新機能) ---
+class RealtimeCoach(VideoTransformerBase):
+    def __init__(self):
+        self.mp_pose = mp.solutions.pose
+        self.pose = self.mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+        self.mp_drawing = mp.solutions.drawing_utils
+        # プロの目標値を外部から注入できるようにする
+        self.target_metrics = None 
+
+    def update_target(self, metrics):
+        self.target_metrics = metrics
+
+    def transform(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        h, w, _ = img.shape
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        results = self.pose.process(img_rgb)
+
+        # デフォルトの表示
+        cv2.putText(img, "AI Coach Eye", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+
+        if results.pose_landmarks:
+            lm = results.pose_landmarks.landmark
+            self.mp_drawing.draw_landmarks(img, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+            
+            # 現在のフォーム計算
+            l_shoulder = [lm[self.mp_pose.PoseLandmark.LEFT_SHOULDER].x, lm[self.mp_pose.PoseLandmark.LEFT_SHOULDER].y]
+            l_elbow = [lm[self.mp_pose.PoseLandmark.LEFT_ELBOW].x, lm[self.mp_pose.PoseLandmark.LEFT_ELBOW].y]
+            l_wrist = [lm[self.mp_pose.PoseLandmark.LEFT_WRIST].x, lm[self.mp_pose.PoseLandmark.LEFT_WRIST].y]
+            
+            current_arm_angle = calculate_angle(l_shoulder, l_elbow, l_wrist)
+            
+            # --- コーチング表示 ---
+            if self.target_metrics:
+                target_arm = self.target_metrics['top_arm_angle']
+                
+                # ボックス描画
+                cv2.rectangle(img, (10, 60), (350, 180), (0,0,0), -1)
+                
+                # 数値表示
+                cv2.putText(img, f"Current Arm: {int(current_arm_angle)} deg", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                cv2.putText(img, f"Target (Pro): {int(target_arm)} deg", (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                
+                # 判定ロジック
+                diff = current_arm_angle - target_arm
+                if abs(diff) < 15:
+                    cv2.putText(img, "GOOD POSE!", (20, 160), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
+                elif diff < -15:
+                    cv2.putText(img, "Extend Arm!", (20, 160), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+                else:
+                    cv2.putText(img, "Relax Arm!", (20, 160), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+            else:
+                cv2.putText(img, "No Pro Data Selected", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+
+        return img
+
+# --- 4. サイドバー設定 ---
 st.sidebar.title("⛳ Menu")
 selected_club = st.sidebar.selectbox("使用クラブ", ["ドライバー", "フェアウェイウッド", "7番アイアン", "ウェッジ", "パター"])
-app_mode = st.sidebar.radio("モード切替", ["1. プロ動画登録", "2. スイング解析 & スコア", "3. 比較動画作成(Sync)", "4. リアルタイム確認"])
+app_mode = st.sidebar.radio("モード切替", ["1. プロ動画登録", "2. スイング解析 & スコア", "3. 比較動画作成(Sync)", "4. リアルタイム・コーチ"])
+
 st.sidebar.markdown("---")
 st.sidebar.info(f"設定中: **{selected_club}**")
 
-# --- 4. メインコンテンツ ---
-st.title(f"🏌️ K's Golf AI Coach")
+# --- 5. メインコンテンツ ---
+st.title(f"🏌️ K's Golf AI Coach Professional")
 
 # PAGE 1: プロ動画登録
 if app_mode == "1. プロ動画登録":
     st.header(f"🧑‍🏫 {selected_club}のお手本設定")
-    if selected_club in st.session_state['club_data']:
-        st.success("✅ 設定済み")
-        st.video(st.session_state['club_data'][selected_club]['video_path'])
-        if st.button("リセット"):
-            del st.session_state['club_data'][selected_club]
-            st.rerun()
-    else:
-        st.info("⚠️ 正確なスコアを出すために、正面または真横からの動画を使用してください。")
-        pro_file = st.file_uploader("プロ動画をアップロード", type=['mp4', 'mov'])
-        pro_rotate = st.selectbox("回転", ["なし", "時計回りに90度", "反時計回りに90度"])
-        if pro_file and st.button("解析して保存"):
-            tfile = tempfile.NamedTemporaryFile(delete=False)
-            tfile.write(pro_file.read())
-            out_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
-            with st.spinner('AIがスイングを解析中...'):
-                processed_path, df, metrics = analyze_video_advanced(tfile.name, out_path, pro_rotate)
-                if metrics:
-                    st.session_state['club_data'][selected_club] = {'video_path': processed_path, 'metrics': metrics}
-                    st.success("保存完了！")
-                    st.rerun()
+    st.write("クラブごとに「正面」と「横」の2種類を保存できます。")
+    
+    # データ構造初期化
+    if selected_club not in st.session_state['club_data']:
+        st.session_state['club_data'][selected_club] = {}
+
+    # アングル選択タブ
+    tab_front, tab_side = st.tabs(["正面 (Face-on)", "横 (Down-the-line)"])
+    
+    def register_pro_video(angle_key, angle_name):
+        current_data = st.session_state['club_data'][selected_club].get(angle_key)
+        if current_data:
+            st.success(f"✅ {angle_name}動画: 設定済み")
+            st.video(current_data['video_path'])
+            if st.button(f"{angle_name}動画を削除", key=f"del_{angle_key}"):
+                del st.session_state['club_data'][selected_club][angle_key]
+                st.rerun()
+        else:
+            pro_file = st.file_uploader(f"プロの{angle_name}動画をアップロード", type=['mp4', 'mov'], key=f"up_{angle_key}")
+            pro_rotate = st.selectbox("回転", ["なし", "時計回りに90度", "反時計回りに90度"], key=f"rot_{angle_key}")
+            if pro_file and st.button(f"解析して保存 ({angle_name})", key=f"btn_{angle_key}"):
+                tfile = tempfile.NamedTemporaryFile(delete=False)
+                tfile.write(pro_file.read())
+                out_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
+                with st.spinner('AIがスイングを解析中...'):
+                    processed_path, df, metrics = analyze_video_advanced(tfile.name, out_path, pro_rotate)
+                    if metrics:
+                        st.session_state['club_data'][selected_club][angle_key] = {'video_path': processed_path, 'metrics': metrics}
+                        st.success(f"{angle_name}データを保存しました！")
+                        st.rerun()
+
+    with tab_front:
+        register_pro_video('Front', '正面')
+    with tab_side:
+        register_pro_video('Side', '横')
 
 # PAGE 2: ユーザー解析 & スコア
 elif app_mode == "2. スイング解析 & スコア":
     st.header("📊 AI スイング診断")
 
-    if selected_club not in st.session_state['club_data']:
+    if selected_club not in st.session_state['club_data'] or not st.session_state['club_data'][selected_club]:
         st.warning("まずは「プロ動画登録」でお手本を設定してください。")
     else:
-        pro_data = st.session_state['club_data'][selected_club]
+        # アングル選択
+        available_angles = list(st.session_state['club_data'][selected_club].keys())
+        target_angle = st.radio("どのアングルと比較しますか？", available_angles, format_func=lambda x: "正面" if x=="Front" else "横")
+        
+        pro_data = st.session_state['club_data'][selected_club][target_angle]
         pm = pro_data['metrics']
         
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader("お手本 (Pro)")
+            st.subheader(f"お手本 ({'正面' if target_angle=='Front' else '横'})")
             st.video(pro_data['video_path'])
         with col2:
             st.subheader("あなた (You)")
             
-            # --- ここに注意書きを追加 ---
-            st.markdown("""
+            warning_msg = "正面" if target_angle == "Front" else "横（飛球線後方）"
+            st.markdown(f"""
             <div class="angle-warning">
-                ⚠️ <strong>撮影時の注意:</strong><br>
-                プロの動画と同じアングル（正面 または 横）で撮影してください。<br>
-                アングルが違うとスコアが正しく判定されません。
+                ⚠️ <strong>撮影アングル注意:</strong><br>
+                必ずプロと同じ <strong>「{warning_msg}」</strong> から撮影してください。<br>
+                アングルが違うとスコアが正しく出ません。
             </div>
             """, unsafe_allow_html=True)
-            # --------------------------
 
             my_file = st.file_uploader("自分の動画", type=['mp4', 'mov'])
             my_rotate = st.selectbox("回転", ["なし", "時計回りに90度", "反時計回りに90度"])
@@ -368,10 +422,9 @@ elif app_mode == "2. スイング解析 & スコア":
             if st.session_state['my_processed_video']:
                 st.video(st.session_state['my_processed_video'])
 
-        # --- スコア詳細 & アドバイス ---
+        # --- スコア詳細 ---
         if st.session_state['my_metrics']:
             mm = st.session_state['my_metrics']
-            
             m_back = mm['top_frame'] - mm['address_frame']
             m_down = mm['impact_frame'] - mm['top_frame']
             my_tempo = m_back / m_down if m_down > 0 else 0
@@ -393,7 +446,6 @@ elif app_mode == "2. スイング解析 & スコア":
             """, unsafe_allow_html=True)
 
             c1, c2, c3, c4, c5 = st.columns(5)
-            
             def show_card(col, title, score, msg):
                 with col:
                     st.markdown(f'<div class="sub-score-box"><div>{title}</div><div class="metric-value">{score}</div><div class="advice-text">{msg}</div></div>', unsafe_allow_html=True)
@@ -409,16 +461,21 @@ elif app_mode == "3. 比較動画作成(Sync)":
     st.header("🎞️ 同期動画作成")
     
     if selected_club in st.session_state['club_data'] and st.session_state['my_metrics']:
+        # 最後に解析した時のデータが残っているはずだが、アングルが一致しているか確認は難しいので
+        # ユーザーに「さっき解析したアングルのプロ動画」を選ばせる
+        available_angles = list(st.session_state['club_data'][selected_club].keys())
+        target_angle = st.radio("どのアングルのプロ動画と結合しますか？", available_angles, format_func=lambda x: "正面" if x=="Front" else "横")
+        
         if st.button("比較動画を作成"):
             sync_out = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
             with st.spinner("現在処理中... 動画を結合しています"):
-                pro_path = st.session_state['club_data'][selected_club]['video_path']
+                pro_path = st.session_state['club_data'][selected_club][target_angle]['video_path']
                 my_path = st.session_state['my_processed_video']
                 
                 create_sync_video(
                     pro_path, 
                     my_path, 
-                    st.session_state['club_data'][selected_club]['metrics'],
+                    st.session_state['club_data'][selected_club][target_angle]['metrics'],
                     st.session_state['my_metrics'],
                     sync_out
                 )
@@ -430,7 +487,26 @@ elif app_mode == "3. 比較動画作成(Sync)":
     else:
         st.warning("まずは「プロ動画登録」と「スイング解析」を行ってください。")
 
-# PAGE 4: リアルタイム
-elif app_mode == "4. リアルタイム確認":
-    st.header("🪞 リアルタイム・チェック")
-    webrtc_streamer(key="realtime", mode=WebRtcMode.SENDRECV, rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
+# PAGE 4: リアルタイム・コーチ
+elif app_mode == "4. リアルタイム・コーチ":
+    st.header("📢 リアルタイム・AIコーチ")
+    st.write("カメラに向かって構えてください。プロの数値と比較して、撮影者にアドバイスを表示します。")
+
+    if selected_club not in st.session_state['club_data'] or not st.session_state['club_data'][selected_club]:
+         st.warning("プロ動画が登録されていません。")
+    else:
+        available_angles = list(st.session_state['club_data'][selected_club].keys())
+        target_angle = st.radio("どのアングルでチェックしますか？", available_angles, format_func=lambda x: "正面" if x=="Front" else "横")
+        
+        target_metrics = st.session_state['club_data'][selected_club][target_angle]['metrics']
+        
+        ctx = webrtc_streamer(
+            key="realtime-coach", 
+            mode=WebRtcMode.SENDRECV, 
+            rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+            video_processor_factory=RealtimeCoach,
+            async_processing=True
+        )
+        
+        if ctx.video_processor:
+            ctx.video_processor.update_target(target_metrics)
