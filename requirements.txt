@@ -1,8 +1,7 @@
-streamlit
-streamlit-webrtc
-mediapipe
-opencv-python-headless
+streamlit==1.32.0
+streamlit-webrtc==0.47.0
+opencv-python-headless==4.8.0.74
+mediapipe==0.10.9
+protobuf==3.20.3
+altair<5
 numpy<2
-protobuf<4
-pandas
-av
