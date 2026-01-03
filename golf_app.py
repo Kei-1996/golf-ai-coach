@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import tempfile
 import av
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoTransformerBase
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoProcessorBase
 
 # --- 1. 基本設定 ---
 st.set_page_config(layout="wide", page_title="K's Golf AI Coach")
@@ -36,7 +36,7 @@ st.markdown("""
     .metric-value { font-size: 1.4rem; font-weight: bold; color: #31333F; }
     .advice-text { font-size: 0.9rem; color: #d32f2f; margin-top: 5px; font-weight: bold;}
     
-    /* 安全警告（赤） */
+    /* 安全警告（赤）：命に関わること */
     .safety-warning {
         background-color: #ffebee;
         color: #c62828;
@@ -46,21 +46,20 @@ st.markdown("""
         margin-bottom: 15px;
         font-weight: bold;
     }
-    /* アングル案内（青） */
+    /* アングル案内（青）：解析精度に関わること */
     .angle-info {
         background-color: #e3f2fd;
-        color: #1565c0;
-        padding: 10px;
+        color: #0d47a1;
+        padding: 15px;
         border-radius: 5px;
         border: 1px solid #90caf9;
-        margin-bottom: 10px;
-        font-size: 0.9rem;
+        margin-bottom: 15px;
+        font-size: 0.95rem;
     }
     </style>
     """, unsafe_allow_html=True)
 
 # --- Session State ---
-# 構造: club_data[club][angle_type] = { ... }
 if 'club_data' not in st.session_state: st.session_state['club_data'] = {}
 if 'my_processed_video' not in st.session_state: st.session_state['my_processed_video'] = None
 if 'my_df' not in st.session_state: st.session_state['my_df'] = None
@@ -86,7 +85,7 @@ def get_vertical_angle(a, b):
     return angle
 
 def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
-    """動画解析: 骨格検知とメトリクス抽出"""
+    """動画解析"""
     cap = cv2.VideoCapture(input_path)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -279,8 +278,8 @@ def generate_advice(label, pro_val, my_val):
         score = max(0, int(100 - (my_val * 1000)))
     return score, msg
 
-# --- 3. リアルタイム分析クラス ---
-class RealtimeCoach(VideoTransformerBase):
+# --- 3. リアルタイム分析クラス (修正版: VideoProcessorBase) ---
+class RealtimeCoach(VideoProcessorBase):
     def __init__(self):
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
@@ -290,10 +289,17 @@ class RealtimeCoach(VideoTransformerBase):
     def update_target(self, metrics):
         self.target_metrics = metrics
 
-    def transform(self, frame):
+    def recv(self, frame):
+        # 画像データを取得
         img = frame.to_ndarray(format="bgr24")
+        
+        # 左右反転（ミラーリング）
+        img = cv2.flip(img, 1)
+        
         h, w, _ = img.shape
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        
+        # MediaPipeで処理
         results = self.pose.process(img_rgb)
 
         cv2.putText(img, "AI Coach Eye", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
@@ -302,15 +308,18 @@ class RealtimeCoach(VideoTransformerBase):
             lm = results.pose_landmarks.landmark
             self.mp_drawing.draw_landmarks(img, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
             
+            # 左肩・左肘・左手首の座標（ミラーしているのでLeftが画面上では右側に来るが、骨格名称はそのまま）
             l_shoulder = [lm[self.mp_pose.PoseLandmark.LEFT_SHOULDER].x, lm[self.mp_pose.PoseLandmark.LEFT_SHOULDER].y]
             l_elbow = [lm[self.mp_pose.PoseLandmark.LEFT_ELBOW].x, lm[self.mp_pose.PoseLandmark.LEFT_ELBOW].y]
             l_wrist = [lm[self.mp_pose.PoseLandmark.LEFT_WRIST].x, lm[self.mp_pose.PoseLandmark.LEFT_WRIST].y]
             
             current_arm_angle = calculate_angle(l_shoulder, l_elbow, l_wrist)
             
+            # コーチング表示
             if self.target_metrics:
                 target_arm = self.target_metrics['top_arm_angle']
                 
+                # 背景ボックス
                 cv2.rectangle(img, (10, 60), (350, 180), (0,0,0), -1)
                 
                 cv2.putText(img, f"Current Arm: {int(current_arm_angle)} deg", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
@@ -326,7 +335,8 @@ class RealtimeCoach(VideoTransformerBase):
             else:
                 cv2.putText(img, "No Pro Data Selected", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
-        return img
+        # 処理後の画像をWebRTCに戻す
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 # --- 4. サイドバー設定 ---
 st.sidebar.title("⛳ Menu")
@@ -354,7 +364,6 @@ if app_mode == "1. プロ動画登録":
     if selected_club not in st.session_state['club_data']:
         st.session_state['club_data'][selected_club] = {}
 
-    # タブ名変更：後方をメインに
     tab_side, tab_front = st.tabs(["後方 (Down-the-line)", "体の正面 (Face-on)"])
     
     def register_pro_video(angle_key, angle_name):
@@ -379,7 +388,6 @@ if app_mode == "1. プロ動画登録":
                         st.success(f"{angle_name}データを保存しました！")
                         st.rerun()
 
-    # タブの中身
     with tab_side:
         st.info("飛球線後方（背中側）から、ターゲット方向に向かって撮影した動画です。")
         register_pro_video('Side', '後方')
@@ -394,9 +402,7 @@ elif app_mode == "2. スイング解析 & スコア":
     if selected_club not in st.session_state['club_data'] or not st.session_state['club_data'][selected_club]:
         st.warning("まずは「プロ動画登録」でお手本を設定してください。")
     else:
-        # アングル選択（UI表示を変更）
         available_angles = list(st.session_state['club_data'][selected_club].keys())
-        # ラジオボタンの表示名を変換
         target_angle = st.radio(
             "どのアングルと比較しますか？", 
             available_angles, 
@@ -413,14 +419,24 @@ elif app_mode == "2. スイング解析 & スコア":
         with col2:
             st.subheader("あなた (You)")
             
+            # --- 注意書きのCSS適用 ---
             warning_msg = "体の正面（お腹側）" if target_angle == "Front" else "後方（背中側・飛球線後方）"
-            st.markdown(f"""
+            
+            # 1. 命に関わる警告（赤）
+            st.markdown("""
             <div class="safety-warning">
-                ⚠️ <strong>撮影アングル注意:</strong><br>
-                必ずプロと同じ <strong>「{warning_msg}」</strong> から撮影してください。<br>
-                ※ 打球の進行方向には絶対に立たないでください。
+                ⚠️ 安全警告：打球の進行方向には絶対に立たないでください。
             </div>
             """, unsafe_allow_html=True)
+            
+            # 2. 解析精度のための案内（青）
+            st.markdown(f"""
+            <div class="angle-info">
+                ℹ️ <strong>撮影アングルについて:</strong><br>
+                正確なスコアを出すため、プロと同じ <strong>「{warning_msg}」</strong> から撮影してください。
+            </div>
+            """, unsafe_allow_html=True)
+            # --------------------------
 
             my_file = st.file_uploader("自分の動画", type=['mp4', 'mov'])
             my_rotate = st.selectbox("回転", ["なし", "時計回りに90度", "反時計回りに90度"])
