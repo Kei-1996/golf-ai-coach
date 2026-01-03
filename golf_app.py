@@ -30,8 +30,10 @@ st.markdown("""
         border-radius: 8px;
         margin-bottom: 10px;
         text-align: center;
+        height: 100%;
     }
-    .metric-value { font-size: 1.5rem; font-weight: bold; color: #31333F; }
+    .metric-value { font-size: 1.4rem; font-weight: bold; color: #31333F; }
+    .advice-text { font-size: 0.9rem; color: #d32f2f; margin-top: 5px; font-weight: bold;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -40,11 +42,12 @@ if 'club_data' not in st.session_state: st.session_state['club_data'] = {}
 if 'my_processed_video' not in st.session_state: st.session_state['my_processed_video'] = None
 if 'my_df' not in st.session_state: st.session_state['my_df'] = None
 if 'my_metrics' not in st.session_state: st.session_state['my_metrics'] = None
+if 'sync_video_path' not in st.session_state: st.session_state['sync_video_path'] = None
 
 # --- 2. 計算・解析用関数 ---
 
 def calculate_angle(a, b, c):
-    """3点から角度を計算 (0-180度)"""
+    """3点から角度を計算"""
     a = np.array(a)
     b = np.array(b)
     c = np.array(c)
@@ -54,30 +57,21 @@ def calculate_angle(a, b, c):
     return angle
 
 def get_vertical_angle(a, b):
-    """2点（肩と腰など）と垂直線との角度（前傾角度用）"""
+    """垂直線に対する角度（前傾角度用）0度が垂直"""
     a = np.array(a)
     b = np.array(b)
-    # 垂直ベクトル
-    v = np.array([b[0], a[1]]) 
-    radians = np.arctan2(a[0]-b[0], a[1]-b[1])
+    radians = np.arctan2(abs(a[0]-b[0]), abs(a[1]-b[1]))
     angle = np.abs(radians*180.0/np.pi)
     return angle
 
 def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
-    """
-    高度な動画解析: 
-    1. 骨格検知
-    2. 各種メトリクス抽出 (腕、膝、前傾、頭)
-    3. スイングイベント推定 (アドレス、トップ、インパクト)
-    """
+    """動画解析: 骨格検知とメトリクス抽出"""
     cap = cv2.VideoCapture(input_path)
-    
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = int(cap.get(cv2.CAP_PROP_FPS))
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    # 回転後のサイズ
     if rotate_mode in ["時計回りに90度", "反時計回りに90度"]:
         out_width, out_height = height, width
     else:
@@ -90,7 +84,6 @@ def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
     mp_drawing = mp.solutions.drawing_utils
     pose_data = []
     
-    # メトリクス用リスト
     nose_x_list = []
     spine_angles = []
     knee_angles = []
@@ -101,11 +94,8 @@ def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
             ret, frame = cap.read()
             if not ret: break
             
-            # 回転処理
-            if rotate_mode == "時計回りに90度":
-                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-            elif rotate_mode == "反時計回りに90度":
-                frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            if rotate_mode == "時計回りに90度": frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+            elif rotate_mode == "反時計回りに90度": frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
             
             image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             image.flags.writeable = False
@@ -113,21 +103,12 @@ def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
             image.flags.writeable = True
             image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
             
-            frame_data = {
-                "Frame": i,
-                "Time": i / fps if fps > 0 else 0,
-                "L_Wrist_Y": None,
-                "Arm_Angle": None,
-                "Spine_Angle": None,
-                "R_Knee_Angle": None,
-                "Nose_X": None
-            }
+            frame_data = {"Frame": i, "Time": i/fps if fps>0 else 0, "L_Wrist_Y": None}
 
             if results.pose_landmarks:
                 lm = results.pose_landmarks.landmark
-                h, w, _ = image.shape
                 
-                # 必要な部位の座標 (正規化座標)
+                # 座標
                 nose = [lm[mp_pose.PoseLandmark.NOSE].x, lm[mp_pose.PoseLandmark.NOSE].y]
                 l_shoulder = [lm[mp_pose.PoseLandmark.LEFT_SHOULDER].x, lm[mp_pose.PoseLandmark.LEFT_SHOULDER].y]
                 l_elbow = [lm[mp_pose.PoseLandmark.LEFT_ELBOW].x, lm[mp_pose.PoseLandmark.LEFT_ELBOW].y]
@@ -137,32 +118,24 @@ def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
                 r_knee = [lm[mp_pose.PoseLandmark.RIGHT_KNEE].x, lm[mp_pose.PoseLandmark.RIGHT_KNEE].y]
                 r_ankle = [lm[mp_pose.PoseLandmark.RIGHT_ANKLE].x, lm[mp_pose.PoseLandmark.RIGHT_ANKLE].y]
 
-                # 1. 左腕の角度 (トップでの伸び)
+                # 計算
                 arm_angle = calculate_angle(l_shoulder, l_elbow, l_wrist)
-                
-                # 2. 前傾角度 (左肩と左腰を結ぶ線と垂直線の角度)
                 spine_angle = get_vertical_angle(l_shoulder, l_hip)
-                
-                # 3. 右膝の角度 (スウェー/伸び上がりチェック)
                 knee_angle = calculate_angle(r_hip, r_knee, r_ankle)
 
-                # データ格納
-                frame_data["L_Wrist_Y"] = l_wrist[1]
-                frame_data["Arm_Angle"] = arm_angle
-                frame_data["Spine_Angle"] = spine_angle
-                frame_data["R_Knee_Angle"] = knee_angle
-                frame_data["Nose_X"] = nose[0]
+                frame_data.update({
+                    "L_Wrist_Y": l_wrist[1],
+                    "Arm_Angle": arm_angle,
+                    "Spine_Angle": spine_angle,
+                    "R_Knee_Angle": knee_angle,
+                    "Nose_X": nose[0]
+                })
                 
-                # リストに追加（統計用）
                 nose_x_list.append(nose[0])
                 spine_angles.append(spine_angle)
                 knee_angles.append(knee_angle)
 
-                # 描画 (スケルトン)
                 mp_drawing.draw_landmarks(image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
-                
-                # 頭の位置をマーキング
-                cv2.circle(image, (int(nose[0]*w), int(nose[1]*h)), 8, (0, 255, 255), -1)
 
             pose_data.append(frame_data)
             out.write(image)
@@ -172,103 +145,168 @@ def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
     out.release()
     df = pd.DataFrame(pose_data)
     
-    # --- スイングイベント推定 (簡易版) ---
-    # Top: 手首(Y)が一番高い(値が小さい)フレーム
     if not df.empty and df['L_Wrist_Y'].notnull().any():
         top_idx = df['L_Wrist_Y'].idxmin()
         top_frame = df.loc[top_idx, 'Frame']
         
-        # Address: 開始からTopまでの間で手首が一番低い位置 (簡易的)
-        address_df = df[df['Frame'] < top_frame]
-        address_frame = 0
-        if not address_df.empty:
-            address_frame = address_df['L_Wrist_Y'].idxmax() # 手が低い = Yが大きい
-            # idxmaxだとindexが返るのでFrameを取得
-            if pd.isna(address_frame): address_frame = 0
-            else: address_frame = df.loc[address_frame, 'Frame']
+        # Address (Topより前で手が一番低い)
+        addr_df = df[df['Frame'] < top_frame]
+        address_frame = df.loc[addr_df['L_Wrist_Y'].idxmax(), 'Frame'] if not addr_df.empty else 0
         
-        # Impact: Topの後で手首が一番低い位置 (ボール位置と仮定)
-        impact_df = df[df['Frame'] > top_frame]
-        impact_frame = frame_count - 1
-        if not impact_df.empty:
-            impact_idx = impact_df['L_Wrist_Y'].idxmax()
-            impact_frame = df.loc[impact_idx, 'Frame']
+        # Impact (Topより後で手が一番低い)
+        imp_df = df[df['Frame'] > top_frame]
+        impact_frame = df.loc[imp_df['L_Wrist_Y'].idxmax(), 'Frame'] if not imp_df.empty else frame_count-1
+        
+        # Top時点での値を抽出
+        top_data = df.loc[top_idx]
 
         metrics = {
             'fps': fps,
-            'top_frame': top_frame,
-            'address_frame': address_frame,
-            'impact_frame': impact_frame,
+            'top_frame': int(top_frame),
+            'address_frame': int(address_frame),
+            'impact_frame': int(impact_frame),
             'head_stability': np.std(nose_x_list) if nose_x_list else 0,
-            'spine_stability': np.std(spine_angles) if spine_angles else 0,
-            'knee_stability': np.std(knee_angles) if knee_angles else 0,
-            'top_arm_angle': df.loc[top_idx, 'Arm_Angle']
+            'spine_angle_top': top_data['Spine_Angle'], # Topでの前傾
+            'knee_angle_top': top_data['R_Knee_Angle'], # Topでの膝
+            'top_arm_angle': top_data['Arm_Angle']
         }
     else:
         metrics = None
 
     return output_path, df, metrics
 
-def score_swing(pro_metrics, my_metrics):
-    """スコア計算ロジック (5要素)"""
-    scores = {}
-    details = {}
+def create_sync_video(pro_path, my_path, pro_metrics, my_metrics, output_path):
+    """復活した同期動画生成機能"""
+    cap_pro = cv2.VideoCapture(pro_path)
+    cap_my = cv2.VideoCapture(my_path)
+
+    h_pro = int(cap_pro.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    h_my = int(cap_my.get(cv2.CAP_PROP_FRAME_HEIGHT))
     
-    # 1. テンポ (Tempo) - 比率 3.0 が理想
-    # Pro
-    pro_backswing = pro_metrics['top_frame'] - pro_metrics['address_frame']
-    pro_downswing = pro_metrics['impact_frame'] - pro_metrics['top_frame']
-    pro_ratio = pro_backswing / pro_downswing if pro_downswing > 0 else 3.0
+    if h_pro == 0 or h_my == 0: return
+
+    target_h = min(h_pro, h_my)
+    w_pro = int(cap_pro.get(cv2.CAP_PROP_FRAME_WIDTH))
+    w_my = int(cap_my.get(cv2.CAP_PROP_FRAME_WIDTH))
+    new_w_pro = int(w_pro * (target_h / h_pro))
+    new_w_my = int(w_my * (target_h / h_my))
+    target_w = new_w_pro + new_w_my
+
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, my_metrics['fps'], (target_w, target_h))
+
+    # Top位置で合わせるためのオフセット計算
+    pro_top = pro_metrics['top_frame']
+    my_top = my_metrics['top_frame']
     
-    # User
-    my_backswing = my_metrics['top_frame'] - my_metrics['address_frame']
-    my_downswing = my_metrics['impact_frame'] - my_metrics['top_frame']
-    my_ratio = my_backswing / my_downswing if my_downswing > 0 else 0
+    offset = my_top - pro_top
+    pro_delay = max(0, offset)
+    my_delay = max(0, -offset)
     
-    # 3.0からの乖離で採点
-    diff_ratio = abs(3.0 - my_ratio)
-    scores['Tempo'] = max(0, int(100 - diff_ratio * 30))
-    details['Tempo'] = f"Ratio: {my_ratio:.2f} (Ideal: 3.0)"
+    max_frames = int(max(cap_pro.get(cv2.CAP_PROP_FRAME_COUNT) + pro_delay, 
+                         cap_my.get(cv2.CAP_PROP_FRAME_COUNT) + my_delay))
 
-    # 2. 左腕の伸び (Arm Extension)
-    diff_arm = abs(pro_metrics['top_arm_angle'] - my_metrics['top_arm_angle'])
-    scores['Arm'] = max(0, int(100 - diff_arm * 1.5))
-    details['Arm'] = f"Angle: {my_metrics['top_arm_angle']:.1f}° (Pro: {pro_metrics['top_arm_angle']:.1f}°)"
+    bar = st.progress(0)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    
+    for i in range(max_frames):
+        # Pro Frame Get
+        if i < pro_delay:
+            cap_pro.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret_pro, frame_pro = cap_pro.read()
+        else:
+            ret_pro, frame_pro = cap_pro.read()
+        
+        # My Frame Get
+        if i < my_delay:
+            cap_my.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret_my, frame_my = cap_my.read()
+        else:
+            ret_my, frame_my = cap_my.read()
+            
+        if not ret_pro or not ret_my: break
 
-    # 3. 頭の固定 (Head Stability) - 標準偏差の小ささ
-    # ユーザーのブレが 0.03 (画面幅の3%) 以下なら満点に近い
-    stab_score = max(0, int(100 - (my_metrics['head_stability'] * 1000))) 
-    scores['Head'] = min(100, stab_score)
-    details['Head'] = f"Stability: {my_metrics['head_stability']:.4f}"
+        frame_pro_resized = cv2.resize(frame_pro, (new_w_pro, target_h))
+        frame_my_resized = cv2.resize(frame_my, (new_w_my, target_h))
+        
+        # 結合
+        concat_frame = cv2.hconcat([frame_pro_resized, frame_my_resized])
+        
+        # マーカー表示
+        sync_text = ""
+        if i == (pro_top + pro_delay): sync_text = "TOP POSITION!"
+        
+        if sync_text:
+            cv2.putText(concat_frame, sync_text, (target_w//2 - 150, 100), font, 1.5, (0,0,255), 5)
+            cv2.putText(concat_frame, sync_text, (target_w//2 - 150, 100), font, 1.5, (255,255,255), 2)
+        
+        out.write(concat_frame)
+        bar.progress((i+1)/max_frames)
 
-    # 4. 前傾キープ (Spine) - 標準偏差
-    spine_score = max(0, int(100 - (my_metrics['spine_stability'] * 50))) # 角度のブレ
-    scores['Spine'] = min(100, spine_score)
-    details['Spine'] = f"Variance: {my_metrics['spine_stability']:.2f}"
+    cap_pro.release()
+    cap_my.release()
+    out.release()
+    return
 
-    # 5. 膝の固定 (Knee) - 標準偏差
-    knee_score = max(0, int(100 - (my_metrics['knee_stability'] * 50)))
-    scores['Knee'] = min(100, knee_score)
-    details['Knee'] = f"Variance: {my_metrics['knee_stability']:.2f}"
+def generate_advice(label, pro_val, my_val, higher_is_better=None):
+    """数値の差分に基づいた具体的なアドバイスを生成"""
+    diff = my_val - pro_val
+    msg = ""
+    score = 100
+    
+    # スコア計算
+    abs_diff = abs(diff)
+    if abs_diff < 5: score = 100
+    else: score = max(0, int(100 - abs_diff * 2)) # 適当な係数
 
-    # 総合得点
-    total = int(sum(scores.values()) / 5)
-    return total, scores, details
+    if label == "Arm":
+        # 腕の角度 (180に近いほうが真っ直ぐ)
+        if diff < -15: msg = f"⚠️ プロより{abs(int(diff))}°曲がっています。左腕をピンと伸ばす意識を！"
+        elif diff > 10: msg = "⚠️ 逆に伸びすぎて過伸展気味かも？少しリラックス。"
+        else: msg = "✅ プロ同様、綺麗に伸びています！"
+        
+    elif label == "Spine":
+        # 前傾角度 (大きい＝前傾が深い、小さい＝起き上がり)
+        if diff < -10: msg = f"⚠️ プロより{abs(int(diff))}°起きています。前傾姿勢をキープして！"
+        elif diff > 10: msg = f"⚠️ プロより{abs(int(diff))}°深く曲げすぎています。もう少し胸を起こして。"
+        else: msg = "✅ 前傾角度が完璧にキープされています。"
+        
+    elif label == "Knee":
+        # 膝の角度 (180に近い＝伸び切ってる)
+        if diff > 10: msg = f"⚠️ プロより{abs(int(diff))}°伸びています（棒立ち）。膝の「ゆとり」を作って。"
+        elif diff < -10: msg = "⚠️ 膝を曲げすぎています。もう少しリラックス。"
+        else: msg = "✅ 膝の角度が安定しています。"
+        
+    elif label == "Tempo":
+        # テンポ比率 (理想3.0)
+        # my_val は比率
+        if my_val < 2.5: msg = "⚠️ 打ち急いでいます。バックスイングをもっとゆっくり！"
+        elif my_val > 3.5: msg = "⚠️ バックスイングが遅すぎます。始動をスムーズに。"
+        else: msg = "✅ 完璧なリズム（3:1）です！"
+        score = max(0, int(100 - abs(3.0 - my_val)*30))
+
+    elif label == "Head":
+        # 頭のブレ (小さいほうがいい)
+        if my_val > pro_val * 2: msg = "⚠️ 頭が動きすぎています。ボールを凝視して軸を固定！"
+        else: msg = "✅ 体幹が強く、頭が動いていません。"
+        # スコア計算上書き
+        score = max(0, int(100 - (my_val * 1000)))
+
+    return score, msg
 
 # --- 3. サイドバー設定 ---
 st.sidebar.title("⛳ Menu")
 selected_club = st.sidebar.selectbox("使用クラブ", ["ドライバー", "フェアウェイウッド", "7番アイアン", "ウェッジ", "パター"])
-app_mode = st.sidebar.radio("モード切替", ["1. プロ動画登録", "2. スイング解析 & スコア", "3. リアルタイム確認"])
+app_mode = st.sidebar.radio("モード切替", ["1. プロ動画登録", "2. スイング解析 & スコア", "3. 比較動画作成(Sync)", "4. リアルタイム確認"])
 st.sidebar.markdown("---")
 st.sidebar.info(f"設定中: **{selected_club}**")
 
 # --- 4. メインコンテンツ ---
-st.title(f"🏌️ K's Golf AI Coach Ultimate")
+st.title(f"🏌️ K's Golf AI Coach Perfect")
 
 # PAGE 1: プロ動画登録
 if app_mode == "1. プロ動画登録":
     st.header(f"🧑‍🏫 {selected_club}のお手本設定")
-    
     if selected_club in st.session_state['club_data']:
         st.success("✅ 設定済み")
         st.video(st.session_state['club_data'][selected_club]['video_path'])
@@ -288,8 +326,6 @@ if app_mode == "1. プロ動画登録":
                     st.session_state['club_data'][selected_club] = {'video_path': processed_path, 'metrics': metrics}
                     st.success("保存完了！")
                     st.rerun()
-                else:
-                    st.error("骨格が検出できませんでした。別の動画を試してください。")
 
 # PAGE 2: ユーザー解析 & スコア
 elif app_mode == "2. スイング解析 & スコア":
@@ -299,6 +335,7 @@ elif app_mode == "2. スイング解析 & スコア":
         st.warning("まずは「プロ動画登録」でお手本を設定してください。")
     else:
         pro_data = st.session_state['club_data'][selected_club]
+        pm = pro_data['metrics']
         
         col1, col2 = st.columns(2)
         with col1:
@@ -322,60 +359,73 @@ elif app_mode == "2. スイング解析 & スコア":
             if st.session_state['my_processed_video']:
                 st.video(st.session_state['my_processed_video'])
 
-        # --- スコアカード表示 ---
-        if st.session_state['my_metrics'] and pro_data['metrics']:
-            total, scores, details = score_swing(pro_data['metrics'], st.session_state['my_metrics'])
+        # --- スコア詳細 & アドバイス ---
+        if st.session_state['my_metrics']:
+            mm = st.session_state['my_metrics']
             
+            # テンポ比率計算
+            m_back = mm['top_frame'] - mm['address_frame']
+            m_down = mm['impact_frame'] - mm['top_frame']
+            my_tempo = m_back / m_down if m_down > 0 else 0
+            
+            # 各スコアとメッセージ生成
+            s_arm, m_arm = generate_advice("Arm", pm['top_arm_angle'], mm['top_arm_angle'])
+            s_spine, m_spine = generate_advice("Spine", pm['spine_angle_top'], mm['spine_angle_top'])
+            s_knee, m_knee = generate_advice("Knee", pm['knee_angle_top'], mm['knee_angle_top'])
+            s_tempo, m_tempo = generate_advice("Tempo", 3.0, my_tempo)
+            s_head, m_head = generate_advice("Head", pm['head_stability'], mm['head_stability'])
+
+            total_score = int((s_arm + s_spine + s_knee + s_tempo + s_head) / 5)
+
             st.markdown("---")
             st.markdown(f"""
             <div class="score-card">
                 <div>総合スコア</div>
-                <div class="total-score">{total}</div>
+                <div class="total-score">{total_score}</div>
             </div>
             """, unsafe_allow_html=True)
 
             c1, c2, c3, c4, c5 = st.columns(5)
             
-            with c1:
-                st.markdown('<div class="sub-score-box">⏱️ テンポ</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="metric-value">{scores["Tempo"]}</div>', unsafe_allow_html=True)
-                st.caption(details['Tempo'])
-            
-            with c2:
-                st.markdown('<div class="sub-score-box">💪 左腕の伸び</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="metric-value">{scores["Arm"]}</div>', unsafe_allow_html=True)
-                st.caption(details['Arm'])
-            
-            with c3:
-                st.markdown('<div class="sub-score-box">😐 頭の固定</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="metric-value">{scores["Head"]}</div>', unsafe_allow_html=True)
-                st.caption(details['Head'])
-                
-            with c4:
-                st.markdown('<div class="sub-score-box">📐 前傾維持</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="metric-value">{scores["Spine"]}</div>', unsafe_allow_html=True)
-                st.caption(details['Spine'])
-                
-            with c5:
-                st.markdown('<div class="sub-score-box">🦵 膝の粘り</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="metric-value">{scores["Knee"]}</div>', unsafe_allow_html=True)
-                st.caption(details['Knee'])
-                
-            # アドバイス
-            st.markdown("### 💡 AI Coach Advice")
-            lowest_metric = min(scores, key=scores.get)
-            if lowest_metric == "Tempo":
-                st.warning("スイングのリズムが早すぎる、または遅すぎます。「イチ、ニ、サーン」のリズム（3:1）を意識しましょう。")
-            elif lowest_metric == "Arm":
-                st.warning("トップで左肘が曲がっています。遠くに上げるイメージで、アーク（円）を大きくしましょう。")
-            elif lowest_metric == "Head":
-                st.warning("頭が動きすぎています。ボールを最後まで見つめ、軸をブラさないようにしましょう。")
-            elif lowest_metric == "Spine":
-                st.warning("前傾姿勢が崩れています（起き上がり）。お尻の位置を変えない意識を持ちましょう。")
-            elif lowest_metric == "Knee":
-                st.warning("下半身が不安定です。右膝の角度をキープして、パワーを逃さないようにしましょう。")
+            def show_card(col, title, score, msg):
+                with col:
+                    st.markdown(f'<div class="sub-score-box"><div>{title}</div><div class="metric-value">{score}</div><div class="advice-text">{msg}</div></div>', unsafe_allow_html=True)
 
-# PAGE 3: リアルタイム
-elif app_mode == "3. リアルタイム確認":
+            show_card(c1, "⏱️ テンポ", s_tempo, m_tempo)
+            show_card(c2, "💪 左腕", s_arm, m_arm)
+            show_card(c3, "😐 頭固定", s_head, m_head)
+            show_card(c4, "📐 前傾", s_spine, m_spine)
+            show_card(c5, "🦵 膝", s_knee, m_knee)
+
+# PAGE 3: 比較動画 (Sync)
+elif app_mode == "3. 比較動画作成(Sync)":
+    st.header("🎞️ 同期動画作成")
+    st.write("プロとあなたのスイングを、AIが検出した「トップ位置」で自動同期させて並べます。")
+    
+    if selected_club in st.session_state['club_data'] and st.session_state['my_metrics']:
+        if st.button("比較動画を作成"):
+            sync_out = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
+            with st.spinner("タイミングを合わせて結合中..."):
+                # プロ動画パス取得（簡易的なため解析済み動画を使用）
+                pro_path = st.session_state['club_data'][selected_club]['video_path']
+                my_path = st.session_state['my_processed_video']
+                
+                create_sync_video(
+                    pro_path, 
+                    my_path, 
+                    st.session_state['club_data'][selected_club]['metrics'],
+                    st.session_state['my_metrics'],
+                    sync_out
+                )
+                st.session_state['sync_video_path'] = sync_out
+            st.success("完成しました！")
+            
+        if st.session_state['sync_video_path']:
+            st.video(st.session_state['sync_video_path'])
+    else:
+        st.warning("まずは「プロ動画登録」と「スイング解析」を行ってください。")
+
+# PAGE 4: リアルタイム
+elif app_mode == "4. リアルタイム確認":
     st.header("🪞 リアルタイム・チェック")
     webrtc_streamer(key="realtime", mode=WebRtcMode.SENDRECV, rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
