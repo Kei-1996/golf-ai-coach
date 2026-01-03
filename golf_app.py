@@ -6,6 +6,86 @@ import av
 import tempfile
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 
+# --- (ファイルの上のほうに追加する関数) ---
+# この関数を import文の下あたり（calculate_angle関数の近く）に追加してくれ
+def analyze_video(input_path, output_path):
+    cap = cv2.VideoCapture(input_path)
+    
+    # 動画の情報を取得
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    # 保存用の設定（mp4v形式）
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    
+    # MediaPipeの準備
+    mp_pose = mp.solutions.pose
+    mp_drawing = mp.solutions.drawing_utils
+    
+    with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
+        bar = st.progress(0) # 進捗バーを表示
+        
+        for i in range(frame_count):
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            # 1. 色変換
+            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            image.flags.writeable = False
+            
+            # 2. 推論
+            results = pose.process(image)
+            
+            # 3. 描画準備
+            image.flags.writeable = True
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            
+            # 4. 骨格描画ロジック（いつもの）
+            if results.pose_landmarks:
+                landmarks = results.pose_landmarks.landmark
+                
+                # 座標取得
+                shoulder = [landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].x, landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER.value].y]
+                elbow = [landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].x, landmarks[mp_pose.PoseLandmark.LEFT_ELBOW.value].y]
+                wrist = [landmarks[mp_pose.PoseLandmark.LEFT_WRIST.value].x, landmarks[mp_pose.PoseLandmark.LEFT_WRIST.value].y]
+                
+                # 角度計算
+                angle = calculate_angle(shoulder, elbow, wrist)
+                
+                # 色判定
+                if angle > 160:
+                    color = (0, 255, 0)
+                    stage = "Good!"
+                else:
+                    color = (0, 0, 255)
+                    stage = "Bad"
+
+                # 描画
+                mp_drawing.draw_landmarks(
+                    image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
+                    mp_drawing.DrawingSpec(color=color, thickness=2, circle_radius=4),
+                    mp_drawing.DrawingSpec(color=color, thickness=2, circle_radius=2)
+                )
+
+                # テキスト表示
+                cv2.rectangle(image, (0,0), (image.shape[1], 50), color, -1)
+                cv2.putText(image, f'{stage} Angle: {int(angle)}', (10,35), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,255,255), 2, cv2.LINE_AA)
+
+            # 書き出し
+            out.write(image)
+            
+            # 進捗バー更新
+            bar.progress((i + 1) / frame_count)
+
+    cap.release()
+    out.release()
+    return True
+
 # --- 1. 基本設定と関数 ---
 st.set_page_config(layout="wide", page_title="K's Golf AI Coach")
 
@@ -107,30 +187,43 @@ if app_mode == "リアルタイム判定 (Real-time)":
         )
 
 # --- モードB: 動画アップロード分析（これからの機能） ---
+# elif app_mode == "動画アップロード分析 (Upload)": の中身をこれにする
+
 elif app_mode == "動画アップロード分析 (Upload)":
     st.header("📂 動画分析ラボ")
     st.write("撮影したスイング動画をアップロードして、AIが詳細に分析します。")
 
     col1, col2 = st.columns(2)
     
-    # 左側：プロの動画（アップロード機能）
     with col1:
         st.subheader("1. プロ/お手本の動画")
         pro_video = st.file_uploader("プロの動画をアップロード", type=['mp4', 'mov'], key="pro_video")
         if pro_video is not None:
             st.video(pro_video)
-        else:
-            st.info("比較したいお手本動画があればアップロードしてください")
 
-    # 右側：自分の動画（アップロード機能）
     with col2:
         st.subheader("2. あなたのスイング動画")
         my_video = st.file_uploader("自分の動画をアップロード", type=['mp4', 'mov'], key="my_video")
+        
         if my_video is not None:
-            st.video(my_video) # とりあえず再生するだけ
+            # アップロードされたファイルを一時ファイルとして保存
+            tfile = tempfile.NamedTemporaryFile(delete=False) 
+            tfile.write(my_video.read())
             
-            # ここに後で「分析スタートボタン」を作る！
+            # 分析ボタン
             if st.button("🚀 AI分析を開始する"):
-                st.warning("⚠️ 分析機能は現在開発中です！")
-        else:
-            st.info("スマホで撮ったスイング動画をアップロードしてください")
+                st.info("分析中... しばらくお待ちください（動画の長さによって数分かかります）")
+                
+                # 出力用の一時ファイル名を作成
+                output_file_path = tfile.name + "_processed.mp4"
+                
+                # ★分析実行！
+                try:
+                    analyze_video(tfile.name, output_file_path)
+                    st.success("分析完了！")
+                    
+                    # 分析結果を表示
+                    st.video(output_file_path)
+                    
+                except Exception as e:
+                    st.error(f"エラーが発生しました: {e}")
