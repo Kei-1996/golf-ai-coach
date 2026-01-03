@@ -1,6 +1,9 @@
 streamlit==1.32.0
 streamlit-webrtc==0.47.0
+# OpenCV関連のバージョンを完全に一致させます
 opencv-python-headless==4.8.0.74
+opencv-contrib-python-headless==4.8.0.74
+# MediaPipeのバージョンも固定
 mediapipe==0.10.9
 protobuf==3.20.3
 altair<5
