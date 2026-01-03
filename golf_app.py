@@ -6,9 +6,34 @@ import av
 import tempfile
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 
-# --- (ファイルの上のほうに追加する関数) ---
-# この関数を import文の下あたり（calculate_angle関数の近く）に追加してくれ
+# --- 1. 基本設定 (必ず一番最初に記述) ---
+st.set_page_config(layout="wide", page_title="K's Golf AI Coach")
+
+# スタイル調整（スマホで見たときに余白を減らす）
+st.markdown("""
+    <style>
+    .main > div {padding-top: 2rem;}
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 2. 計算用関数 ---
+
+def calculate_angle(a, b, c):
+    """3点の座標から角度を計算する関数"""
+    a = np.array(a)
+    b = np.array(b)
+    c = np.array(c)
+    
+    radians = np.arctan2(c[1]-b[1], c[0]-b[0]) - np.arctan2(a[1]-b[1], a[0]-b[0])
+    angle = np.abs(radians*180.0/np.pi)
+    
+    if angle > 180.0:
+        angle = 360-angle
+        
+    return angle
+
 def analyze_video(input_path, output_path):
+    """アップロードされた動画を解析して保存する関数"""
     cap = cv2.VideoCapture(input_path)
     
     # 動画の情報を取得
@@ -18,6 +43,7 @@ def analyze_video(input_path, output_path):
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
     # 保存用の設定（mp4v形式）
+    # 注意: ブラウザによっては再生できない場合があります。その場合はH264変換などが必要です。
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
     
@@ -44,7 +70,7 @@ def analyze_video(input_path, output_path):
             image.flags.writeable = True
             image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
             
-            # 4. 骨格描画ロジック（いつもの）
+            # 4. 骨格描画ロジック
             if results.pose_landmarks:
                 landmarks = results.pose_landmarks.landmark
                 
@@ -79,35 +105,15 @@ def analyze_video(input_path, output_path):
             # 書き出し
             out.write(image)
             
-            # 進捗バー更新
-            bar.progress((i + 1) / frame_count)
+            # 進捗バー更新 (0除算回避のため frame_count チェック推奨だが簡易的に実装)
+            if frame_count > 0:
+                bar.progress((i + 1) / frame_count)
 
     cap.release()
     out.release()
     return True
 
-# --- 1. 基本設定と関数 ---
-st.set_page_config(layout="wide", page_title="K's Golf AI Coach")
-
-# スタイル調整（スマホで見たときに余白を減らす）
-st.markdown("""
-    <style>
-    .main > div {padding-top: 2rem;}
-    </style>
-    """, unsafe_allow_html=True)
-
-# 角度計算ロジック
-def calculate_angle(a, b, c):
-    a = np.array(a)
-    b = np.array(b)
-    c = np.array(c)
-    radians = np.arctan2(c[1]-b[1], c[0]-b[0]) - np.arctan2(a[1]-b[1], a[0]-b[0])
-    angle = np.abs(radians*180.0/np.pi)
-    if angle > 180.0:
-        angle = 360-angle
-    return angle
-
-# --- 2. 映像処理クラス（リアルタイム用） ---
+# --- 3. 映像処理クラス（リアルタイム用） ---
 class PoseProcessor(VideoProcessorBase):
     def __init__(self):
         self.mp_drawing = mp.solutions.drawing_utils
@@ -152,7 +158,7 @@ class PoseProcessor(VideoProcessorBase):
 
         return av.VideoFrame.from_ndarray(image, format="bgr24")
 
-# --- 3. アプリのメイン構造 ---
+# --- 4. アプリのメイン構造 ---
 st.title("⛳️ K's Golf AI Coach")
 
 # ★サイドバーでモード切替★
@@ -166,7 +172,7 @@ club_list = ["ドライバー (1W)", "アイアン (7I)", "ウェッジ", "パ�
 club_select = st.sidebar.selectbox("使用クラブ", club_list)
 
 
-# --- モードA: リアルタイム判定（今までの機能） ---
+# --- モードA: リアルタイム判定 ---
 if app_mode == "リアルタイム判定 (Real-time)":
     st.header("⚡️ リアルタイム・コーチ")
     st.write("友達に撮ってもらいながら、フォームをチェックしよう！")
@@ -186,9 +192,7 @@ if app_mode == "リアルタイム判定 (Real-time)":
             async_processing=True,
         )
 
-# --- モードB: 動画アップロード分析（これからの機能） ---
-# elif app_mode == "動画アップロード分析 (Upload)": の中身をこれにする
-
+# --- モードB: 動画アップロード分析 ---
 elif app_mode == "動画アップロード分析 (Upload)":
     st.header("📂 動画分析ラボ")
     st.write("撮影したスイング動画をアップロードして、AIが詳細に分析します。")
