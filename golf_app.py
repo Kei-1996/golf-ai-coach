@@ -36,7 +36,6 @@ st.markdown("""
     .metric-value { font-size: 1.4rem; font-weight: bold; color: #31333F; }
     .advice-text { font-size: 0.9rem; color: #d32f2f; margin-top: 5px; font-weight: bold;}
     
-    /* 安全警告（赤）：命に関わること */
     .safety-warning {
         background-color: #ffebee;
         color: #c62828;
@@ -46,7 +45,6 @@ st.markdown("""
         margin-bottom: 15px;
         font-weight: bold;
     }
-    /* アングル案内（青）：解析精度に関わること */
     .angle-info {
         background-color: #e3f2fd;
         color: #0d47a1;
@@ -278,7 +276,7 @@ def generate_advice(label, pro_val, my_val):
         score = max(0, int(100 - (my_val * 1000)))
     return score, msg
 
-# --- 3. リアルタイム分析クラス (最新のVideoProcessorBaseを使用) ---
+# --- 3. リアルタイム分析クラス (VideoProcessorBase) ---
 class RealtimeCoach(VideoProcessorBase):
     def __init__(self):
         self.mp_pose = mp.solutions.pose
@@ -290,9 +288,7 @@ class RealtimeCoach(VideoProcessorBase):
         self.target_metrics = metrics
 
     def recv(self, frame):
-        # 画像データを取得
         img = frame.to_ndarray(format="bgr24")
-        # ミラーリング（反転）
         img = cv2.flip(img, 1)
         
         h, w, _ = img.shape
@@ -305,20 +301,15 @@ class RealtimeCoach(VideoProcessorBase):
             lm = results.pose_landmarks.landmark
             self.mp_drawing.draw_landmarks(img, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
             
-            # 左肩・左肘・左手首の座標（ミラーしているのでLeftが画面上では右側に来るが、骨格名称はそのまま）
             l_shoulder = [lm[self.mp_pose.PoseLandmark.LEFT_SHOULDER].x, lm[self.mp_pose.PoseLandmark.LEFT_SHOULDER].y]
             l_elbow = [lm[self.mp_pose.PoseLandmark.LEFT_ELBOW].x, lm[self.mp_pose.PoseLandmark.LEFT_ELBOW].y]
             l_wrist = [lm[self.mp_pose.PoseLandmark.LEFT_WRIST].x, lm[self.mp_pose.PoseLandmark.LEFT_WRIST].y]
             
             current_arm_angle = calculate_angle(l_shoulder, l_elbow, l_wrist)
             
-            # コーチング表示
             if self.target_metrics:
                 target_arm = self.target_metrics['top_arm_angle']
-                
-                # 背景ボックス
                 cv2.rectangle(img, (10, 60), (350, 180), (0,0,0), -1)
-                
                 cv2.putText(img, f"Current Arm: {int(current_arm_angle)} deg", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                 cv2.putText(img, f"Target (Pro): {int(target_arm)} deg", (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
                 
@@ -332,7 +323,6 @@ class RealtimeCoach(VideoProcessorBase):
             else:
                 cv2.putText(img, "No Pro Data Selected", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
-        # 処理後の画像をWebRTCに戻す
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 # --- 4. サイドバー設定 ---
@@ -340,29 +330,42 @@ st.sidebar.title("⛳ Menu")
 selected_club = st.sidebar.selectbox("使用クラブ", ["ドライバー", "フェアウェイウッド", "7番アイアン", "ウェッジ", "パター"])
 app_mode = st.sidebar.radio("モード切替", ["1. プロ動画登録", "2. スイング解析 & スコア", "3. 比較動画作成(Sync)", "4. リアルタイム・コーチ"])
 
-# --- 5. 予約・検索リンク (Next Step) ---
+# --- 5. 予約・検索リンク (アフィリエイトエリア) ---
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ⛳ 次のラウンド・レッスンを予約")
+st.sidebar.caption("※本ページはプロモーションが含まれています")
 
-# 練習場にいるユーザーへの提案は「コース予約」がベスト
-st.sidebar.link_button(
-    "📅 楽天GORAでコース予約", 
-    "https://hb.afl.rakuten.co.jp/hgc/4fb95961.88417fd4.4fb95962.222603ac/?pc=https%3A%2F%2Fgora.golf.rakuten.co.jp%2F&link_type=text&ut=eyJwYWdlIjoidXJsIiwidHlwZSI6InRleHQiLCJjb2wiOjF9"
-)
-st.sidebar.link_button(
-    "🚗 じゃらんゴルフで検索", 
-    "https://px.a8.net/svt/ejp?a8mat=4AUXWQ+EXMG1E+36SI+64C3M"
-)
+# 1. 楽天GORA
+# ↓↓↓ここに取得したURLを貼り付ける！！！
+rakuten_affiliate_url = "https://hb.afl.rakuten.co.jp/hgc/4fb95961.88417fd4.4fb95962.222603ac/?pc=https%3A%2F%2Fgora.golf.rakuten.co.jp%2F&link_type=text&ut=eyJwYWdlIjoidXJsIiwidHlwZSI6InRleHQiLCJjb2wiOjF9" 
 
-# 「上手くいかない...」という人向け
-st.sidebar.caption("スイングに悩みがあるなら...")
-st.sidebar.link_button(
-    "👨‍🏫 近くのゴルフレッスンを探す", 
-    "https://www17.a8.net/0.gif?a8mat=4AUXWQ+F4RNAQ+CW6+BETIUA"
-)
+if rakuten_affiliate_url:
+    st.sidebar.link_button("📅 楽天GORAでコース予約", rakuten_affiliate_url)
+else:
+    # URL未設定時のダミー（エラーにならないように）
+    st.sidebar.button("📅 楽天GORA (URL未設定)", disabled=True)
+
+# 2. じゃらんゴルフ
+# ↓↓↓ここに取得したURLを貼り付ける！！！
+jalan_affiliate_url = "https://px.a8.net/svt/ejp?a8mat=4AUXWQ+EXMG1E+36SI+64C3M"
+
+if jalan_affiliate_url:
+    st.sidebar.link_button("🚗 じゃらんゴルフで検索", jalan_affiliate_url)
+else:
+    st.sidebar.button("🚗 じゃらんゴルフ (URL未設定)", disabled=True)
+
+# 3. レッスン予約
+# ↓↓↓ここに取得したURLを貼り付ける！！！
+lesson_affiliate_url = "https://www17.a8.net/0.gif?a8mat=4AUXWQ+F4RNAQ+CW6+BETIUA"
+
+if lesson_affiliate_url:
+    st.sidebar.link_button("👨‍🏫 近くのゴルフレッスンを探す", lesson_affiliate_url)
+else:
+    st.sidebar.button("👨‍🏫 レッスン (URL未設定)", disabled=True)
 
 st.sidebar.markdown("---")
 st.sidebar.info(f"設定中: **{selected_club}**")
+
 
 # --- 6. メインコンテンツ ---
 st.title(f"🏌️ K's Golf AI Coach Professional")
@@ -439,14 +442,12 @@ elif app_mode == "2. スイング解析 & スコア":
             
             warning_msg = "体の正面（お腹側）" if target_angle == "Front" else "後方（背中側・飛球線後方）"
             
-            # 安全警告（赤）
             st.markdown("""
             <div class="safety-warning">
                 ⚠️ 安全警告：打球の進行方向には絶対に立たないでください。
             </div>
             """, unsafe_allow_html=True)
             
-            # アングル案内（青）
             st.markdown(f"""
             <div class="angle-info">
                 ℹ️ <strong>撮影アングルについて:</strong><br>
