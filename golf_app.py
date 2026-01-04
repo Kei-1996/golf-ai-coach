@@ -366,6 +366,15 @@ else:
 st.sidebar.markdown("---")
 st.sidebar.info(f"設定中: **{selected_club}**")
 
+st.sidebar.markdown("---")
+st.sidebar.caption("""
+**⚠️ 免責事項**
+本アプリの解析結果はAIによる推定値です。
+正確性を保証するものではありません。
+怪我や事故について開発者は責任を負いません。
+安全に十分配慮してご利用ください。
+""")
+
 
 # --- 6. メインコンテンツ ---
 st.title(f"🏌️ K's Golf AI Coach Professional")
