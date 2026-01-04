@@ -347,18 +347,18 @@ st.sidebar.markdown("### ⛳ 次のラウンド・レッスンを予約")
 # 練習場にいるユーザーへの提案は「コース予約」がベスト
 st.sidebar.link_button(
     "📅 楽天GORAでコース予約", 
-    "https://gora.golf.rakuten.co.jp/"
+    "https://hb.afl.rakuten.co.jp/hgc/4fb95961.88417fd4.4fb95962.222603ac/?pc=https%3A%2F%2Fgora.golf.rakuten.co.jp%2F&link_type=text&ut=eyJwYWdlIjoidXJsIiwidHlwZSI6InRleHQiLCJjb2wiOjF9"
 )
 st.sidebar.link_button(
     "🚗 じゃらんゴルフで検索", 
-    "https://golf-jalan.net/"
+    "https://px.a8.net/svt/ejp?a8mat=4AUXWQ+EXMG1E+36SI+64C3M"
 )
 
 # 「上手くいかない...」という人向け
 st.sidebar.caption("スイングに悩みがあるなら...")
 st.sidebar.link_button(
     "👨‍🏫 近くのゴルフレッスンを探す", 
-    "https://school.golf-l.jp/"
+    "https://www17.a8.net/0.gif?a8mat=4AUXWQ+F4RNAQ+CW6+BETIUA"
 )
 
 st.sidebar.markdown("---")
