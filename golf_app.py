@@ -85,7 +85,7 @@ def get_vertical_angle(a, b):
     return angle
 
 def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
-    """動画解析"""
+    """動画解析: 骨格検知とメトリクス抽出"""
     cap = cv2.VideoCapture(input_path)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -278,7 +278,7 @@ def generate_advice(label, pro_val, my_val):
         score = max(0, int(100 - (my_val * 1000)))
     return score, msg
 
-# --- 3. リアルタイム分析クラス (修正版: VideoProcessorBase) ---
+# --- 3. リアルタイム分析クラス (最新のVideoProcessorBaseを使用) ---
 class RealtimeCoach(VideoProcessorBase):
     def __init__(self):
         self.mp_pose = mp.solutions.pose
@@ -292,14 +292,11 @@ class RealtimeCoach(VideoProcessorBase):
     def recv(self, frame):
         # 画像データを取得
         img = frame.to_ndarray(format="bgr24")
-        
-        # 左右反転（ミラーリング）
+        # ミラーリング（反転）
         img = cv2.flip(img, 1)
         
         h, w, _ = img.shape
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        
-        # MediaPipeで処理
         results = self.pose.process(img_rgb)
 
         cv2.putText(img, "AI Coach Eye", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
@@ -343,10 +340,31 @@ st.sidebar.title("⛳ Menu")
 selected_club = st.sidebar.selectbox("使用クラブ", ["ドライバー", "フェアウェイウッド", "7番アイアン", "ウェッジ", "パター"])
 app_mode = st.sidebar.radio("モード切替", ["1. プロ動画登録", "2. スイング解析 & スコア", "3. 比較動画作成(Sync)", "4. リアルタイム・コーチ"])
 
+# --- 5. 予約・検索リンク (Next Step) ---
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ⛳ 次のラウンド・レッスンを予約")
+
+# 練習場にいるユーザーへの提案は「コース予約」がベスト
+st.sidebar.link_button(
+    "📅 楽天GORAでコース予約", 
+    "https://gora.golf.rakuten.co.jp/"
+)
+st.sidebar.link_button(
+    "🚗 じゃらんゴルフで検索", 
+    "https://golf-jalan.net/"
+)
+
+# 「上手くいかない...」という人向け
+st.sidebar.caption("スイングに悩みがあるなら...")
+st.sidebar.link_button(
+    "👨‍🏫 近くのゴルフレッスンを探す", 
+    "https://school.golf-l.jp/"
+)
+
 st.sidebar.markdown("---")
 st.sidebar.info(f"設定中: **{selected_club}**")
 
-# --- 5. メインコンテンツ ---
+# --- 6. メインコンテンツ ---
 st.title(f"🏌️ K's Golf AI Coach Professional")
 
 # PAGE 1: プロ動画登録
@@ -419,24 +437,22 @@ elif app_mode == "2. スイング解析 & スコア":
         with col2:
             st.subheader("あなた (You)")
             
-            # --- 注意書きのCSS適用 ---
             warning_msg = "体の正面（お腹側）" if target_angle == "Front" else "後方（背中側・飛球線後方）"
             
-            # 1. 命に関わる警告（赤）
+            # 安全警告（赤）
             st.markdown("""
             <div class="safety-warning">
                 ⚠️ 安全警告：打球の進行方向には絶対に立たないでください。
             </div>
             """, unsafe_allow_html=True)
             
-            # 2. 解析精度のための案内（青）
+            # アングル案内（青）
             st.markdown(f"""
             <div class="angle-info">
                 ℹ️ <strong>撮影アングルについて:</strong><br>
                 正確なスコアを出すため、プロと同じ <strong>「{warning_msg}」</strong> から撮影してください。
             </div>
             """, unsafe_allow_html=True)
-            # --------------------------
 
             my_file = st.file_uploader("自分の動画", type=['mp4', 'mov'])
             my_rotate = st.selectbox("回転", ["なし", "時計回りに90度", "反時計回りに90度"])
