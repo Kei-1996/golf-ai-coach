@@ -10,101 +10,119 @@ from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoProcessorBase
 # --- 1. 基本設定 & デザインシステム ---
 st.set_page_config(layout="wide", page_title="K's Golf AI Coach")
 
-# 日本語対応のミニマルデザインCSS
+# オーガニック・モダンデザイン (クリームベース、角丸、目に優しい配色)
 st.markdown("""
     <style>
-    /* 日本語フォント設定 (ヒラギノ, メイリオ, 游ゴシック) */
+    /* 全体の背景色とフォント設定 */
+    .stApp {
+        background-color: #FAF9F6; /* オフホワイト/クリーム */
+    }
+    
     html, body, [class*="css"] {
-        font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Meiryo", "Yu Gothic", sans-serif;
-        color: #333333;
+        font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Meiryo", sans-serif;
+        color: #4A4A4A; /* 真っ黒ではなくダークグレーで目に優しく */
+    }
+    
+    /* ヘッダー周り */
+    h1, h2, h3 {
+        color: #2C3E50;
+        font-weight: 600;
+        letter-spacing: 0.05em;
     }
     
     .main > div { padding-top: 2rem; }
 
-    /* ビデオ表示 */
+    /* ビデオ表示 (角を大きく丸める) */
     video { 
         width: 100% !important; 
         height: auto !important; 
-        border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        border-radius: 20px;
+        box-shadow: 0 8px 24px rgba(149, 157, 165, 0.1); /* 柔らかい影 */
     }
     
-    /* --- カードデザイン --- */
-    .minimal-card {
-        background-color: #ffffff;
-        border: 1px solid #f0f0f0;
-        border-radius: 16px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+    /* --- カードデザイン (浮き上がるような柔らかい白) --- */
+    .soft-card {
+        background-color: #FFFFFF;
+        border: none;
+        border-radius: 24px; /* かなり丸く */
+        padding: 24px;
+        margin-bottom: 24px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.03); /* 浮遊感 */
         text-align: center;
     }
     
-    .score-title {
-        font-size: 0.85rem;
-        color: #888888;
+    .score-label {
+        font-size: 0.8rem;
+        color: #8D99AE;
         font-weight: 600;
-        margin-bottom: 5px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 8px;
     }
     
     .total-score-val {
-        font-size: 3.5rem;
-        font-weight: 700;
-        color: #333;
+        font-size: 4rem;
+        font-weight: 500;
+        color: #2F3E46; /* 深い緑がかったグレー */
         line-height: 1.0;
-        margin-bottom: 10px;
+        margin-bottom: 12px;
     }
     
     .metric-val {
-        font-size: 1.4rem;
-        font-weight: 700;
-        color: #333;
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #2F3E46;
     }
     
     .advice-text {
         font-size: 0.85rem;
-        color: #666;
-        margin-top: 5px;
-        line-height: 1.4;
+        color: #6c757d;
+        margin-top: 8px;
+        line-height: 1.6;
     }
 
-    /* --- 注意書き・Infoデザイン --- */
+    /* --- メッセージボックス (線ではなく背景色で優しく) --- */
     .info-box {
-        background-color: #f8f9fa;
-        border-left: 4px solid #007AFF;
-        padding: 15px;
-        border-radius: 0 8px 8px 0;
-        margin: 15px 0;
-        color: #444;
+        background-color: #E8F4F8; /* 薄い空色 */
+        padding: 16px 20px;
+        border-radius: 16px;
+        margin: 16px 0;
+        color: #4A6FA5;
         font-size: 0.9rem;
+        line-height: 1.6;
     }
     
     .warning-box {
-        background-color: #fff5f5;
-        border-left: 4px solid #FF3B30;
-        padding: 15px;
-        border-radius: 0 8px 8px 0;
-        margin: 15px 0;
-        color: #c0392b;
+        background-color: #FFF0F0; /* 薄いピンク */
+        padding: 16px 20px;
+        border-radius: 16px;
+        margin: 16px 0;
+        color: #C0392B;
         font-size: 0.9rem;
-        font-weight: 600;
+        font-weight: 500;
     }
 
-    /* --- ボタンのカスタマイズ --- */
+    /* --- ボタンのカスタマイズ (丸みを帯びたピル型) --- */
     div.stButton > button {
-        border-radius: 8px;
+        border-radius: 50px; /* ピル型 */
+        border: none;
+        background-color: #FFFFFF;
+        color: #555;
         font-weight: 600;
-        border: 1px solid #e0e0e0;
-        background-color: #ffffff;
-        color: #333;
-        transition: all 0.2s;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        padding: 0.5rem 1.5rem;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        transition: all 0.3s ease;
     }
     div.stButton > button:hover {
-        border-color: #007AFF;
-        color: #007AFF;
-        background-color: #f0f7ff;
-        transform: translateY(-1px);
+        background-color: #6B705C; /* 落ち着いたオリーブグリーン */
+        color: #FFFFFF;
+        box-shadow: 0 6px 15px rgba(107, 112, 92, 0.3);
+        transform: translateY(-2px);
+    }
+    
+    /* サイドバーの背景も合わせる */
+    section[data-testid="stSidebar"] {
+        background-color: #F4F3F0; /* 本体より少し濃いクリーム */
     }
     </style>
     """, unsafe_allow_html=True)
@@ -151,9 +169,9 @@ def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
     
     mp_pose = mp.solutions.pose
     mp_drawing = mp.solutions.drawing_utils
-    # 線をシンプルに
+    # 線を白と落ち着いたグレーに
     drawing_spec_points = mp_drawing.DrawingSpec(color=(255, 255, 255), thickness=2, circle_radius=3)
-    drawing_spec_lines = mp_drawing.DrawingSpec(color=(220, 220, 220), thickness=2)
+    drawing_spec_lines = mp_drawing.DrawingSpec(color=(200, 200, 200), thickness=2)
 
     pose_data = []
     nose_x_list = []
@@ -350,7 +368,7 @@ class RealtimeCoach(VideoProcessorBase):
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         results = self.pose.process(img_rgb)
 
-        cv2.putText(img, "AI Coach Eye", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 1, cv2.LINE_AA)
+        cv2.putText(img, "AI Coach", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 1, cv2.LINE_AA)
 
         if results.pose_landmarks:
             lm = results.pose_landmarks.landmark
@@ -389,34 +407,32 @@ app_mode = st.sidebar.radio("モード選択", ["1. プロ動画登録", "2. ス
 
 # --- 5. 予約・検索リンク (アフィリエイトエリア) ---
 st.sidebar.markdown("---")
-st.sidebar.markdown("##### ⛳ コース・レッスン予約")
+st.sidebar.markdown("##### コース・レッスン予約")
 st.sidebar.caption("※本ページはプロモーションが含まれています")
 
 # 1. 楽天GORA
 rakuten_affiliate_url = "https://hb.afl.rakuten.co.jp/hgc/4fb95961.88417fd4.4fb95962.222603ac/?pc=https%3A%2F%2Fgora.golf.rakuten.co.jp%2F&link_type=text&ut=eyJwYWdlIjoidXJsIiwidHlwZSI6InRleHQiLCJjb2wiOjF9" 
 
 if rakuten_affiliate_url:
-    st.sidebar.link_button("📅 楽天GORAで予約", rakuten_affiliate_url)
+    st.sidebar.link_button("楽天GORAで予約", rakuten_affiliate_url)
 else:
-    st.sidebar.button("📅 楽天GORA (設定待ち)", disabled=True)
+    st.sidebar.button("楽天GORA (設定待ち)", disabled=True)
 
 # 2. じゃらんゴルフ
 jalan_affiliate_url = "https://px.a8.net/svt/ejp?a8mat=4AUXWQ+EXMG1E+36SI+64C3M"
 
 if jalan_affiliate_url:
-    st.sidebar.link_button("🚗 じゃらんゴルフで検索", jalan_affiliate_url)
+    st.sidebar.link_button("じゃらんゴルフで検索", jalan_affiliate_url)
 else:
-    st.sidebar.button("🚗 じゃらんゴルフ (設定待ち)", disabled=True)
+    st.sidebar.button("じゃらんゴルフ (設定待ち)", disabled=True)
 
 # 3. レッスン予約
-# 注意: A8.netのリンクが.gif（画像）になっている。もしクリックしても飛ばない場合は、
-# A8管理画面で「テキスト素材」のURL(px.a8.net...)を取得し直してください。
 lesson_affiliate_url = "https://www17.a8.net/0.gif?a8mat=4AUXWQ+F4RNAQ+CW6+BETIUA"
 
 if lesson_affiliate_url:
-    st.sidebar.link_button("👨‍🏫 スクールを探す", lesson_affiliate_url)
+    st.sidebar.link_button("スクールを探す", lesson_affiliate_url)
 else:
-    st.sidebar.button("👨‍🏫 レッスン (設定待ち)", disabled=True)
+    st.sidebar.button("レッスン (設定待ち)", disabled=True)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
@@ -444,7 +460,7 @@ if app_mode == "1. プロ動画登録":
     def register_pro_video(angle_key, angle_name):
         current_data = st.session_state['club_data'][selected_club].get(angle_key)
         if current_data:
-            st.success(f"✅ {angle_name}動画: 保存済み")
+            st.success(f"{angle_name}動画: 保存済み")
             st.video(current_data['video_path'])
             if st.button(f"動画を削除", key=f"del_{angle_key}"):
                 del st.session_state['club_data'][selected_club][angle_key]
@@ -535,8 +551,8 @@ elif app_mode == "2. スイング診断":
 
             st.markdown("---")
             st.markdown(f"""
-            <div class="minimal-card">
-                <div class="score-title">TOTAL SCORE</div>
+            <div class="soft-card">
+                <div class="score-label">TOTAL SCORE</div>
                 <div class="total-score-val">{total_score}</div>
             </div>
             """, unsafe_allow_html=True)
@@ -545,8 +561,8 @@ elif app_mode == "2. スイング診断":
             def show_card(col, title, score, msg):
                 with col:
                     st.markdown(f"""
-                    <div class="minimal-card" style="padding: 16px; margin-bottom: 10px;">
-                        <div class="score-title">{title}</div>
+                    <div class="soft-card" style="padding: 16px; margin-bottom: 10px;">
+                        <div class="score-label">{title}</div>
                         <div class="metric-val">{score}</div>
                         <div class="advice-text">{msg}</div>
                     </div>
