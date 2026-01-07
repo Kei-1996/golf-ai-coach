@@ -8,99 +8,103 @@ import av
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, VideoProcessorBase
 
 # --- 1. 基本設定 & デザインシステム ---
-st.set_page_config(layout="wide", page_title="Golf AI Coach")
+st.set_page_config(layout="wide", page_title="K's Golf AI Coach")
 
-# Apple/GoogleライクなミニマルデザインCSS
+# 日本語対応のミニマルデザインCSS
 st.markdown("""
     <style>
-    /* 全体のフォント設定 (San Francisco, Roboto, Helvetica Neue) */
+    /* 日本語フォント設定 (ヒラギノ, メイリオ, 游ゴシック) */
     html, body, [class*="css"] {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Meiryo", "Yu Gothic", sans-serif;
         color: #333333;
     }
     
-    /* ヘッダーの余白調整 */
-    .main > div {
-        padding-top: 2rem;
-    }
+    .main > div { padding-top: 2rem; }
 
-    /* ビデオ表示の調整 */
+    /* ビデオ表示 */
     video { 
         width: 100% !important; 
         height: auto !important; 
-        border-radius: 8px; /* 角丸 */
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1); /* 優しい影 */
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
     
-    /* --- カードデザイン (スコア表示など) --- */
+    /* --- カードデザイン --- */
     .minimal-card {
         background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        border-radius: 12px;
-        padding: 24px;
-        margin-bottom: 24px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        border: 1px solid #f0f0f0;
+        border-radius: 16px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.05);
         text-align: center;
     }
     
     .score-title {
-        font-size: 0.9rem;
-        color: #666666;
-        text-transform: uppercase; /* 大文字で統一 */
-        letter-spacing: 1px;
-        margin-bottom: 8px;
+        font-size: 0.85rem;
+        color: #888888;
+        font-weight: 600;
+        margin-bottom: 5px;
     }
     
     .total-score-val {
-        font-size: 4rem;
-        font-weight: 200; /* 細いフォントで洗練さを出す */
-        color: #111111;
+        font-size: 3.5rem;
+        font-weight: 700;
+        color: #333;
         line-height: 1.0;
+        margin-bottom: 10px;
     }
     
     .metric-val {
-        font-size: 1.5rem;
-        font-weight: 500;
-        color: #111111;
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #333;
     }
     
     .advice-text {
         font-size: 0.85rem;
-        color: #555555;
-        margin-top: 8px;
-        line-height: 1.5;
+        color: #666;
+        margin-top: 5px;
+        line-height: 1.4;
     }
 
     /* --- 注意書き・Infoデザイン --- */
     .info-box {
-        border-left: 3px solid #007AFF; /* Apple Blue */
-        padding-left: 12px;
-        margin: 16px 0;
+        background-color: #f8f9fa;
+        border-left: 4px solid #007AFF;
+        padding: 15px;
+        border-radius: 0 8px 8px 0;
+        margin: 15px 0;
         color: #444;
         font-size: 0.9rem;
     }
     
     .warning-box {
-        border-left: 3px solid #FF3B30; /* Apple Red */
-        padding-left: 12px;
-        margin: 16px 0;
-        color: #444;
+        background-color: #fff5f5;
+        border-left: 4px solid #FF3B30;
+        padding: 15px;
+        border-radius: 0 8px 8px 0;
+        margin: 15px 0;
+        color: #c0392b;
         font-size: 0.9rem;
+        font-weight: 600;
     }
 
-    /* --- ボタンのカスタマイズ (Streamlit標準ボタンを少し上品に) --- */
+    /* --- ボタンのカスタマイズ --- */
     div.stButton > button {
         border-radius: 8px;
-        font-weight: 500;
+        font-weight: 600;
         border: 1px solid #e0e0e0;
         background-color: #ffffff;
         color: #333;
         transition: all 0.2s;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     div.stButton > button:hover {
         border-color: #007AFF;
         color: #007AFF;
-        background-color: #f9f9f9;
+        background-color: #f0f7ff;
+        transform: translateY(-1px);
     }
     </style>
     """, unsafe_allow_html=True)
@@ -147,9 +151,9 @@ def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
     
     mp_pose = mp.solutions.pose
     mp_drawing = mp.solutions.drawing_utils
-    # 線を細く、色をシンプルに (白/グレー系)
+    # 線をシンプルに
     drawing_spec_points = mp_drawing.DrawingSpec(color=(255, 255, 255), thickness=2, circle_radius=3)
-    drawing_spec_lines = mp_drawing.DrawingSpec(color=(200, 200, 200), thickness=2)
+    drawing_spec_lines = mp_drawing.DrawingSpec(color=(220, 220, 220), thickness=2)
 
     pose_data = []
     nose_x_list = []
@@ -196,7 +200,6 @@ def analyze_video_advanced(input_path, output_path, rotate_mode="なし"):
                 })
                 nose_x_list.append(nose[0])
                 
-                # デザイン変更: 骨格の描画をシンプルに
                 mp_drawing.draw_landmarks(
                     image, 
                     results.pose_landmarks, 
@@ -285,10 +288,9 @@ def create_sync_video(pro_path, my_path, pro_metrics, my_metrics, output_path):
         concat_frame = cv2.hconcat([frame_pro_resized, frame_my_resized])
         
         if i == (pro_top + pro_delay): 
-            # 文字をシンプルに
-            text_size = cv2.getTextSize("TOP", font, 1.5, 3)[0]
+            text_size = cv2.getTextSize("TOP MATCH", font, 1.5, 3)[0]
             tx = (target_w - text_size[0]) // 2
-            cv2.putText(concat_frame, "TOP", (tx, 100), font, 1.5, (255,255,255), 3)
+            cv2.putText(concat_frame, "TOP MATCH", (tx, 100), font, 1.5, (0,0,255), 3)
         
         out.write(concat_frame)
         bar.progress((i+1)/max_frames)
@@ -348,12 +350,10 @@ class RealtimeCoach(VideoProcessorBase):
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         results = self.pose.process(img_rgb)
 
-        # 文字のデザインもシンプルに
         cv2.putText(img, "AI Coach Eye", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 1, cv2.LINE_AA)
 
         if results.pose_landmarks:
             lm = results.pose_landmarks.landmark
-            # 描画色を白単色に
             self.mp_drawing.draw_landmarks(
                 img, 
                 results.pose_landmarks, 
@@ -365,13 +365,10 @@ class RealtimeCoach(VideoProcessorBase):
             l_shoulder = [lm[self.mp_pose.PoseLandmark.LEFT_SHOULDER].x, lm[self.mp_pose.PoseLandmark.LEFT_SHOULDER].y]
             l_elbow = [lm[self.mp_pose.PoseLandmark.LEFT_ELBOW].x, lm[self.mp_pose.PoseLandmark.LEFT_ELBOW].y]
             l_wrist = [lm[self.mp_pose.PoseLandmark.LEFT_WRIST].x, lm[self.mp_pose.PoseLandmark.LEFT_WRIST].y]
-            
             current_arm_angle = calculate_angle(l_shoulder, l_elbow, l_wrist)
             
             if self.target_metrics:
                 target_arm = self.target_metrics['top_arm_angle']
-                
-                # 半透明の黒背景
                 overlay = img.copy()
                 cv2.rectangle(overlay, (10, 60), (300, 160), (0,0,0), -1)
                 cv2.addWeighted(overlay, 0.6, img, 0.4, 0, img)
@@ -386,98 +383,106 @@ class RealtimeCoach(VideoProcessorBase):
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 # --- 4. サイドバー設定 ---
-st.sidebar.title("Menu") # 英語表記でシンプルに
-selected_club = st.sidebar.selectbox("Club Select", ["Driver", "Fairway Wood", "7 Iron", "Wedge", "Putter"])
-app_mode = st.sidebar.radio("Mode", ["Register Pro Video", "Analyze & Score", "Sync Video", "Realtime Coach"])
+st.sidebar.title("メニュー")
+selected_club = st.sidebar.selectbox("クラブ選択", ["ドライバー", "フェアウェイウッド", "7番アイアン", "ウェッジ", "パター"])
+app_mode = st.sidebar.radio("モード選択", ["1. プロ動画登録", "2. スイング診断", "3. 比較動画作成", "4. リアルタイム・コーチ"])
 
 # --- 5. 予約・検索リンク (アフィリエイトエリア) ---
 st.sidebar.markdown("---")
-st.sidebar.markdown("##### Book & Lesson")
-st.sidebar.caption("Promotion")
+st.sidebar.markdown("##### ⛳ コース・レッスン予約")
+st.sidebar.caption("※本ページはプロモーションが含まれています")
 
 # 1. 楽天GORA
 rakuten_affiliate_url = "https://hb.afl.rakuten.co.jp/hgc/4fb95961.88417fd4.4fb95962.222603ac/?pc=https%3A%2F%2Fgora.golf.rakuten.co.jp%2F&link_type=text&ut=eyJwYWdlIjoidXJsIiwidHlwZSI6InRleHQiLCJjb2wiOjF9" 
 
 if rakuten_affiliate_url:
-    st.sidebar.link_button("Rakuten GORA (Course)", rakuten_affiliate_url)
+    st.sidebar.link_button("📅 楽天GORAで予約", rakuten_affiliate_url)
+else:
+    st.sidebar.button("📅 楽天GORA (設定待ち)", disabled=True)
 
 # 2. じゃらんゴルフ
 jalan_affiliate_url = "https://px.a8.net/svt/ejp?a8mat=4AUXWQ+EXMG1E+36SI+64C3M"
 
 if jalan_affiliate_url:
-    st.sidebar.link_button("Jalan Golf (Course)", jalan_affiliate_url)
+    st.sidebar.link_button("🚗 じゃらんゴルフで検索", jalan_affiliate_url)
+else:
+    st.sidebar.button("🚗 じゃらんゴルフ (設定待ち)", disabled=True)
 
 # 3. レッスン予約
+# 注意: A8.netのリンクが.gif（画像）になっている。もしクリックしても飛ばない場合は、
+# A8管理画面で「テキスト素材」のURL(px.a8.net...)を取得し直してください。
 lesson_affiliate_url = "https://www17.a8.net/0.gif?a8mat=4AUXWQ+F4RNAQ+CW6+BETIUA"
 
 if lesson_affiliate_url:
-    st.sidebar.link_button("Find Lesson", lesson_affiliate_url)
+    st.sidebar.link_button("👨‍🏫 スクールを探す", lesson_affiliate_url)
+else:
+    st.sidebar.button("👨‍🏫 レッスン (設定待ち)", disabled=True)
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
 <div style="font-size: 0.8rem; color: #888;">
-    <strong>Disclaimer</strong><br>
-    This analysis is AI-estimated. Not guaranteed accuracy.
-    Please practice safely.
+    <strong>免責事項</strong><br>
+    本アプリの解析結果はAIによる推定値です。正確性を保証するものではありません。
+    周囲の安全に十分配慮してご利用ください。
 </div>
 """, unsafe_allow_html=True)
 
 
 # --- 6. メインコンテンツ ---
-st.title("Golf AI Coach")
+st.title("K's Golf AI Coach")
 
 # PAGE 1: プロ動画登録
-if app_mode == "Register Pro Video":
-    st.header("Professional Video Setting")
-    st.markdown('<div class="info-box">Upload professional swing videos here. Compare your swing against these standards.</div>', unsafe_allow_html=True)
+if app_mode == "1. プロ動画登録":
+    st.header("お手本動画の設定")
+    st.markdown('<div class="info-box">プロのスイング動画を登録します。あなたのスイングと比較する基準になります。</div>', unsafe_allow_html=True)
     
     if selected_club not in st.session_state['club_data']:
         st.session_state['club_data'][selected_club] = {}
 
-    tab_side, tab_front = st.tabs(["Down-the-line", "Face-on"])
+    tab_side, tab_front = st.tabs(["後方 (Down-the-line)", "体の正面 (Face-on)"])
     
     def register_pro_video(angle_key, angle_name):
         current_data = st.session_state['club_data'][selected_club].get(angle_key)
         if current_data:
-            st.success("Video Set Successfully")
+            st.success(f"✅ {angle_name}動画: 保存済み")
             st.video(current_data['video_path'])
-            if st.button(f"Delete Video", key=f"del_{angle_key}"):
+            if st.button(f"動画を削除", key=f"del_{angle_key}"):
                 del st.session_state['club_data'][selected_club][angle_key]
                 st.rerun()
         else:
-            pro_file = st.file_uploader(f"Upload {angle_name} Video", type=['mp4', 'mov'], key=f"up_{angle_key}")
-            pro_rotate = st.selectbox("Rotate", ["None", "90° Clockwise", "90° Counter-Clockwise"], key=f"rot_{angle_key}")
+            pro_file = st.file_uploader(f"プロの{angle_name}動画をアップロード", type=['mp4', 'mov'], key=f"up_{angle_key}")
+            pro_rotate = st.selectbox("回転オプション", ["なし", "時計回りに90度", "反時計回りに90度"], key=f"rot_{angle_key}")
             
-            # 回転モードの日本語変換対応
-            rot_map = {"None": "なし", "90° Clockwise": "時計回りに90度", "90° Counter-Clockwise": "反時計回りに90度"}
+            rot_map = {"なし": "なし", "時計回りに90度": "時計回りに90度", "反時計回りに90度": "反時計回りに90度"}
             
-            if pro_file and st.button(f"Analyze & Save", key=f"btn_{angle_key}"):
+            if pro_file and st.button(f"解析して保存", key=f"btn_{angle_key}"):
                 tfile = tempfile.NamedTemporaryFile(delete=False)
                 tfile.write(pro_file.read())
                 out_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
-                with st.spinner('Processing...'):
+                with st.spinner('AI解析中...'):
                     processed_path, df, metrics = analyze_video_advanced(tfile.name, out_path, rot_map[pro_rotate])
                     if metrics:
                         st.session_state['club_data'][selected_club][angle_key] = {'video_path': processed_path, 'metrics': metrics}
+                        st.success(f"{angle_name}データを保存しました！")
                         st.rerun()
 
     with tab_side:
-        register_pro_video('Side', 'Down-the-line')
+        register_pro_video('Side', '後方')
     with tab_front:
-        register_pro_video('Front', 'Face-on')
+        register_pro_video('Front', '体の正面')
 
 # PAGE 2: ユーザー解析 & スコア
-elif app_mode == "Analyze & Score":
-    st.header("Analysis & Scoring")
+elif app_mode == "2. スイング診断":
+    st.header("スイング診断 & スコア")
 
     if selected_club not in st.session_state['club_data'] or not st.session_state['club_data'][selected_club]:
-        st.markdown('<div class="warning-box">Please register a Professional Video first.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="warning-box">プロ動画がまだ登録されていません。「プロ動画登録」から設定してください。</div>', unsafe_allow_html=True)
     else:
         available_angles = list(st.session_state['club_data'][selected_club].keys())
         target_angle = st.radio(
-            "Select Angle", 
+            "比較するアングルを選択", 
             available_angles, 
-            format_func=lambda x: "Face-on" if x=="Front" else "Down-the-line"
+            format_func=lambda x: "体の正面 (Face-on)" if x=="Front" else "後方 (Down-the-line)"
         )
         
         pro_data = st.session_state['club_data'][selected_club][target_angle]
@@ -485,28 +490,27 @@ elif app_mode == "Analyze & Score":
         
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader("Professional")
+            st.subheader("お手本 (Pro)")
             st.video(pro_data['video_path'])
         with col2:
-            st.subheader("You")
+            st.subheader("あなた (You)")
             
-            warning_msg = "Face-on" if target_angle == "Front" else "Down-the-line"
-            
+            warning_msg = "体の正面（お腹側）" if target_angle == "Front" else "後方（背中側）"
             st.markdown(f"""
-            <div class="angle-info">
-                Please ensure you record from the <strong>{warning_msg}</strong> angle.
+            <div class="info-box">
+                撮影のヒント: 正確なスコアを出すため、プロと同じ <strong>「{warning_msg}」</strong> から撮影してください。
             </div>
             """, unsafe_allow_html=True)
 
-            my_file = st.file_uploader("Upload Your Video", type=['mp4', 'mov'])
-            my_rotate = st.selectbox("Rotate", ["None", "90° Clockwise", "90° Counter-Clockwise"])
-            rot_map = {"None": "なし", "90° Clockwise": "時計回りに90度", "90° Counter-Clockwise": "反時計回りに90度"}
+            my_file = st.file_uploader("自分の動画をアップロード", type=['mp4', 'mov'])
+            my_rotate = st.selectbox("回転オプション", ["なし", "時計回りに90度", "反時計回りに90度"])
+            rot_map = {"なし": "なし", "時計回りに90度": "時計回りに90度", "反時計回りに90度": "反時計回りに90度"}
             
-            if my_file and st.button("Start Analysis"):
+            if my_file and st.button("診断開始"):
                 tfile = tempfile.NamedTemporaryFile(delete=False)
                 tfile.write(my_file.read())
                 out_path = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
-                with st.spinner('Analyzing...'):
+                with st.spinner('現在解析中... AIがスイングを分析しています'):
                     processed_path, df, metrics = analyze_video_advanced(tfile.name, out_path, rot_map[my_rotate])
                     st.session_state['my_processed_video'] = processed_path
                     st.session_state['my_metrics'] = metrics
@@ -532,7 +536,7 @@ elif app_mode == "Analyze & Score":
             st.markdown("---")
             st.markdown(f"""
             <div class="minimal-card">
-                <div class="score-title">Total Score</div>
+                <div class="score-title">TOTAL SCORE</div>
                 <div class="total-score-val">{total_score}</div>
             </div>
             """, unsafe_allow_html=True)
@@ -548,27 +552,27 @@ elif app_mode == "Analyze & Score":
                     </div>
                     """, unsafe_allow_html=True)
 
-            show_card(c1, "Tempo", s_tempo, m_tempo)
-            show_card(c2, "Left Arm", s_arm, m_arm)
-            show_card(c3, "Head", s_head, m_head)
-            show_card(c4, "Spine", s_spine, m_spine)
-            show_card(c5, "Knee", s_knee, m_knee)
+            show_card(c1, "テンポ", s_tempo, m_tempo)
+            show_card(c2, "左腕の伸び", s_arm, m_arm)
+            show_card(c3, "頭の固定", s_head, m_head)
+            show_card(c4, "前傾維持", s_spine, m_spine)
+            show_card(c5, "膝の粘り", s_knee, m_knee)
 
 # PAGE 3: 比較動画 (Sync)
-elif app_mode == "Sync Video":
-    st.header("Sync Video")
+elif app_mode == "3. 比較動画作成":
+    st.header("同期動画作成")
     
     if selected_club in st.session_state['club_data'] and st.session_state['my_metrics']:
         available_angles = list(st.session_state['club_data'][selected_club].keys())
         target_angle = st.radio(
-            "Select Angle to Sync", 
+            "結合するプロ動画のアングル", 
             available_angles, 
-            format_func=lambda x: "Face-on" if x=="Front" else "Down-the-line"
+            format_func=lambda x: "体の正面 (Face-on)" if x=="Front" else "後方 (Down-the-line)"
         )
         
-        if st.button("Generate Sync Video"):
+        if st.button("比較動画を生成"):
             sync_out = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
-            with st.spinner("Processing..."):
+            with st.spinner("処理中... トップ位置でタイミングを合わせています"):
                 pro_path = st.session_state['club_data'][selected_club][target_angle]['video_path']
                 my_path = st.session_state['my_processed_video']
                 
@@ -580,28 +584,28 @@ elif app_mode == "Sync Video":
                     sync_out
                 )
                 st.session_state['sync_video_path'] = sync_out
-            st.success("Done!")
+            st.success("完成しました！")
             
         if st.session_state['sync_video_path']:
             st.video(st.session_state['sync_video_path'])
     else:
-        st.markdown('<div class="warning-box">Data not found. Please analyze video first.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="warning-box">解析データが見つかりません。先に「スイング診断」を行ってください。</div>', unsafe_allow_html=True)
 
 # PAGE 4: リアルタイム・コーチ
-elif app_mode == "Realtime Coach":
-    st.header("Realtime Coach")
-    st.write("Camera Check")
+elif app_mode == "4. リアルタイム・コーチ":
+    st.header("リアルタイム・AIコーチ")
+    st.write("カメラに向かって構えてください。")
 
-    st.markdown('<div class="warning-box">Safety Warning: Do not stand in the direction of the ball flight.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="warning-box">安全警告：打球の進行方向には絶対に立たないでください。</div>', unsafe_allow_html=True)
 
     if selected_club not in st.session_state['club_data'] or not st.session_state['club_data'][selected_club]:
-         st.markdown('<div class="warning-box">Pro video not registered.</div>', unsafe_allow_html=True)
+         st.markdown('<div class="warning-box">プロ動画が登録されていません。</div>', unsafe_allow_html=True)
     else:
         available_angles = list(st.session_state['club_data'][selected_club].keys())
         target_angle = st.radio(
-            "Select Angle", 
+            "チェックするアングル", 
             available_angles, 
-            format_func=lambda x: "Face-on" if x=="Front" else "Down-the-line"
+            format_func=lambda x: "体の正面 (Face-on)" if x=="Front" else "後方 (Down-the-line)"
         )
         
         target_metrics = st.session_state['club_data'][selected_club][target_angle]['metrics']
